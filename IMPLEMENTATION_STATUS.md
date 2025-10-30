@@ -62,20 +62,37 @@
   - Feature flags
   - Limits and thresholds
 
-### Frontend (Minimal)
+### Frontend (Apple-like UI for Phase 1 & 2)
 
-- ✅ **React + TypeScript** (`frontend/src/`)
+- ✅ **React + TypeScript + TailwindCSS** (`frontend/src/`)
   - Vite build setup
-  - Basic health check UI
-  - API integration with axios
-  - Links to API docs
-  - Status display
+  - Apple-inspired design system (SF Pro font, subtle shadows, smooth animations)
+  - React Router for navigation
+  - React Query for API state management
+  - Monaco Editor for SQL/JSON display
+
+- ✅ **UI Components** (`frontend/src/components/ui/`)
+  - Card, Button, Input, Badge, Spinner
+  - Framer Motion animations
+  - Lucide React icons
+
+- ✅ **Pages** (`frontend/src/pages/`)
+  - **Dashboard**: System health, schema stats, service status
+  - **Schema Explorer**: Tables, columns, relationships, refresh
+  - **NL → SQL Playground**: Test NL→IR, IR→SQL, NL→SQL with step-by-step or direct mode
+  - **Embeddings Manager**: Upload GNN embeddings with JSON
+
+- ✅ **API Integration** (`frontend/src/api/`)
+  - Axios client with interceptors
+  - React Query hooks for all endpoints
+  - TypeScript types for requests/responses
 
 - ✅ **Package Configuration**
   - TypeScript strict mode
   - React 18
-  - Monaco Editor dependency
-  - Vite dev server
+  - TailwindCSS + PostCSS + Autoprefixer
+  - Framer Motion, Lucide React, React Router, React Query
+  - Monaco Editor
 
 ### Documentation
 
@@ -91,6 +108,12 @@
   - GNN embedding ingestion (Kaggle)
   - Schema fingerprinting explanation
   - Multi-user readiness
+
+- ✅ **FRONTEND_SETUP.md** - Frontend UI setup guide
+  - Installation instructions
+  - Usage guide for all pages
+  - Troubleshooting
+  - File structure
 
 - ✅ **start.sh** - Quick start script
 
