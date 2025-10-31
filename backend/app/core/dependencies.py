@@ -15,6 +15,10 @@ from app.services.complexity_service import ComplexityService
 from app.services.corrector_service import CorrectorService
 from app.services.clarification_service import ClarificationService
 from app.services.error_explainer import ErrorExplainer
+from app.services.pipeline_orchestrator import PipelineOrchestrator
+from app.services.data_ingestion_service import DataIngestionService
+from app.services.gnn_inference_service import GNNInferenceService
+from app.services.enhanced_embedding_service import EnhancedEmbeddingService
 
 
 # Redis client (singleton)
@@ -68,11 +72,42 @@ def get_qdrant_service() -> QdrantService:
     )
 
 
-# Embedding service (singleton)
+# GNN Inference service (singleton)
+@lru_cache()
+def get_gnn_inference_service() -> GNNInferenceService:
+    """Get GNN inference service"""
+    return GNNInferenceService(
+        gnn_endpoint=settings.GNN_ENDPOINT,
+        timeout=settings.GNN_TIMEOUT,
+        use_mock=settings.USE_GNN_FALLBACK
+    )
+
+
+# Enhanced Embedding service (singleton)
+@lru_cache()
+def get_enhanced_embedding_service() -> EnhancedEmbeddingService:
+    """Get enhanced embedding service with GNN + SentenceTransformer"""
+    gnn_service = get_gnn_inference_service() if settings.GNN_ENDPOINT else None
+    return EnhancedEmbeddingService(
+        redis_client=get_redis_client(),
+        gnn_service=gnn_service,
+        use_sentence_transformer=settings.USE_GNN_FALLBACK,
+        embedding_dim=settings.EMBEDDING_DIM
+    )
+
+
+# Embedding service (singleton) - backwards compatible
 @lru_cache()
 def get_embedding_service() -> EmbeddingService:
-    """Get embedding service"""
+    """Get embedding service (legacy, prefer get_enhanced_embedding_service)"""
     provider_type = getattr(settings, 'EMBEDDING_PROVIDER', 'mock')
+    
+    # If 'enhanced' provider, return enhanced service wrapped
+    if provider_type == 'enhanced':
+        # Return enhanced service (compatible interface)
+        return get_enhanced_embedding_service()
+    
+    # Legacy providers
     redis_client = get_redis_client() if provider_type == 'gnn' else None
     return EmbeddingService(provider_type=provider_type, redis_client=redis_client)
 
@@ -126,3 +161,25 @@ def get_clarification_service() -> ClarificationService:
 def get_error_explainer() -> ErrorExplainer:
     """Get error explainer"""
     return ErrorExplainer(verbose=settings.ERROR_EXPLAIN_VERBOSE)
+
+
+# Data Ingestion service (singleton)
+@lru_cache()
+def get_data_ingestion_service() -> DataIngestionService:
+    """Get data ingestion service"""
+    return DataIngestionService(mysql_uri=settings.MYSQL_URI)
+
+
+# Pipeline orchestrator (singleton)
+@lru_cache()
+def get_pipeline_orchestrator() -> PipelineOrchestrator:
+    """Get pipeline orchestrator"""
+    return PipelineOrchestrator(
+        schema_service=get_schema_service(),
+        llm_service=get_llm_service(),
+        feedback_service=get_feedback_service(),
+        context_service=get_context_service(),
+        complexity_service=get_complexity_service(),
+        corrector_service=get_corrector_service(),
+        clarification_service=get_clarification_service()
+    )

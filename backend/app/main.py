@@ -4,7 +4,7 @@ FastAPI main application
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.v1 import health, schema, embeddings, nl2sql, diagnostics, feedback
+from app.api.v1 import health, schema, embeddings, nl2sql, diagnostics, feedback, data_ingestion, gnn
 import logging
 
 # Configure logging
@@ -40,6 +40,8 @@ app.include_router(embeddings.router, prefix="/api/v1", tags=["Embeddings"])
 app.include_router(nl2sql.router, prefix="/api/v1", tags=["NL2SQL"])
 app.include_router(feedback.router, prefix="/api/v1", tags=["Feedback"])
 app.include_router(diagnostics.router, prefix="/api/v1", tags=["Diagnostics"])
+app.include_router(data_ingestion.router, prefix="/api/v1", tags=["Data Ingestion"])
+app.include_router(gnn.router, prefix="/api/v1", tags=["GNN"])
 
 @app.on_event("startup")
 async def startup_event():

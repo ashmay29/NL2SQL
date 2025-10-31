@@ -2,7 +2,7 @@
 Configuration management using Pydantic Settings
 """
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
 
 
 class Settings(BaseSettings):
@@ -36,8 +36,14 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.5-flash"
     
     # Embeddings
-    EMBEDDING_PROVIDER: str = "mock"  # mock | gnn
+    EMBEDDING_PROVIDER: str = "mock"  # mock | gnn | enhanced
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDING_DIM: int = 512  # 512 for GNN, 384 for SentenceTransformer
+    
+    # GNN Service
+    GNN_ENDPOINT: Optional[str] = None  # External GNN model server URL
+    GNN_TIMEOUT: int = 30  # GNN request timeout in seconds
+    USE_GNN_FALLBACK: bool = True  # Fall back to SentenceTransformer if GNN fails
     
     # Limits
     MAX_QUERY_ROWS: int = 10000
@@ -58,6 +64,11 @@ class Settings(BaseSettings):
     CACHE_SIMILARITY_THRESHOLD: float = 0.85
     MAX_CACHE_SIZE: int = 1000
     MAX_CONTEXT_TURNS: int = 5
+    
+    # Data Ingestion
+    ENABLE_FILE_UPLOAD: bool = True
+    MAX_UPLOAD_SIZE_MB: int = 100
+    SUPPORTED_FORMATS: List[str] = ["csv", "excel", "parquet", "json"]
     
     # Optional: Kaggle
     KAGGLE_USERNAME: Optional[str] = None

@@ -33,6 +33,8 @@ google-generativeai==0.3.2
 sqlparse==0.4.4
 networkx==3.2.1
 pandas==2.1.4
+openpyxl==3.1.2  # Excel file support
+pyarrow==14.0.2  # Parquet file support
 
 # Optional (for Kaggle)
 kaggle==1.6.6

@@ -11,8 +11,11 @@ from app.models.schemas import (
 from app.core.dependencies import (
     get_schema_service, get_llm_service, get_feedback_service,
     get_context_service, get_complexity_service, get_corrector_service,
-    get_clarification_service
+    get_clarification_service, get_pipeline_orchestrator
 )
+from app.services.pipeline_orchestrator import PipelineOrchestrator, PipelineContext
+from app.services.prompt_templates import build_compact_schema_text, build_ir_prompt
+from app.core.logging_utils import api_logger
 from app.services.schema_service import SchemaService
 from app.services.llm_service import LLMService
 from app.services.feedback_service import FeedbackService
@@ -32,63 +35,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def build_compact_schema_text(schema: Dict[str, Any], max_columns_per_table: int = 12) -> str:
-    """Build a compact schema string: only table and column names to minimize context size."""
-    lines = [f"Database: {schema.get('database', 'unknown')}"]
-    tables: Dict[str, Any] = schema.get("tables", {})
-    for tname, tinfo in tables.items():
-        cols = [c.get("name") for c in tinfo.get("columns", [])]
-        if len(cols) > max_columns_per_table:
-            shown = cols[:max_columns_per_table]
-            shown.append(f"... (+{len(cols) - max_columns_per_table} more)")
-            cols = shown
-        lines.append(f"- {tname}: {', '.join(cols)}")
-    return "\n".join(lines)
-
-
-def build_ir_prompt(
-    schema_text: str,
-    user_query: str,
-    rag_examples: str = "",
-    context: str = ""
-) -> str:
-    """Prompt template to request IR JSON with RAG and context"""
-    prompt_parts = [
-        "You are an expert NL2SQL assistant. Convert the user's question into a JSON Intermediate Representation (IR) for MySQL.",
-        "",
-        "Return ONLY valid JSON. Do not include explanations.",
-        "",
-        "Schema:",
-        schema_text,
-    ]
-    
-    if rag_examples:
-        prompt_parts.extend([
-            "",
-            "Similar past queries (for reference):",
-            rag_examples,
-        ])
-    
-    if context:
-        prompt_parts.extend([
-            "",
-            context,
-        ])
-    
-    prompt_parts.extend([
-        "",
-        "User Question:",
-        user_query,
-        "",
-        "Constraints:",
-        "- Use fields: ctes, select, from_table, joins, where, group_by, having, order_by, limit, offset, parameters",
-        "- Use column references as table.column when ambiguous",
-        "- Prefer safe parameters in 'parameters' for literal values",
-        "- If ambiguity exists, include an 'ambiguities' array with notes and set 'confidence' < 0.8",
-        "- Return IR as JSON with structure: {\"select\": [...], \"from_table\": \"...\", ...}",
-    ])
-    
-    return "\n".join(prompt_parts)
+# Prompt building functions moved to app.services.prompt_templates
 
 
 @router.post("/nl2ir", response_model=NL2IRResponse)
@@ -169,157 +116,81 @@ async def ir2sql(req: IR2SQLRequest):
 @router.post("/nl2sql", response_model=NL2SQLResponse)
 async def nl2sql(
     req: NL2SQLRequest,
-    schema_service: SchemaService = Depends(get_schema_service),
-    llm: LLMService = Depends(get_llm_service),
-    feedback_service: FeedbackService = Depends(get_feedback_service),
-    context_service: ContextService = Depends(get_context_service),
-    complexity_service: ComplexityService = Depends(get_complexity_service),
-    corrector_service: CorrectorService = Depends(get_corrector_service),
-    clarification_service: ClarificationService = Depends(get_clarification_service),
+    orchestrator: PipelineOrchestrator = Depends(get_pipeline_orchestrator),
 ):
     """
     Full NL2SQL pipeline with Phase 3 & 4 enhancements:
     - Phase 3: RAG feedback integration
     - Phase 4: Context, complexity analysis, correction, clarification
     """
-    start_time = time.time()
+    conversation_id = req.conversation_id or "default"
+    database_id = req.database_id or "nl2sql_target"
     
     try:
-        conversation_id = req.conversation_id or "default"
-        database_id = req.database_id or "nl2sql_target"
+        # Create pipeline context
+        ctx = PipelineContext(
+            query_text=req.query_text,
+            conversation_id=conversation_id,
+            database_id=database_id,
+            use_rag=req.use_cache  # Reuse cache flag for RAG
+        )
         
-        # Get schema
-        schema = schema_service.get_cached_schema(database_id)
-        if not schema:
-            schema = schema_service.extract_schema(database_id)
-            schema_service.cache_schema(schema, ttl=settings.SCHEMA_REFRESH_TTL_SEC)
+        # Execute pipeline
+        ctx, clarification_questions = await orchestrator.execute_pipeline(ctx)
         
-        schema_fingerprint = schema.get("version", "default")
-        
-        # Phase 3 & 4: NL -> IR with RAG and context
-        ir_resp = await nl2ir(
-            NL2IRRequest(
-                query_text=req.query_text,
+        # Handle clarification if needed
+        if clarification_questions:
+            api_logger.info(
+                "Clarification needed",
                 conversation_id=conversation_id,
                 database_id=database_id,
-            ),
-            schema_service=schema_service,
-            llm=llm,
-            feedback_service=feedback_service,
-            context_service=context_service,
-            use_rag=True
-        )
-
-        # Phase 4: Check if clarification is needed
-        ir = QueryIR(**ir_resp.ir)
-        needs_clarification = clarification_service.needs_clarification(
-            ir,
-            ir_resp.confidence,
-            ir_resp.ambiguities
-        )
-        
-        if needs_clarification and settings.IR_ADVANCED_FEATURES_ENABLED:
-            # Generate clarification questions
-            clarification_questions = clarification_service.generate_questions(
-                req.query_text,
-                ir,
-                schema,
-                ir_resp.ambiguities
+                confidence=ctx.confidence
             )
-            
-            if clarification_questions:
-                formatted_questions = clarification_service.format_questions_for_user(
-                    clarification_questions
-                )
-                
-                logger.info(f"Clarification needed for query: {req.query_text[:50]}...")
-                
-                # Return response with clarification questions
-                return NL2SQLResponse(
-                    original_question=req.query_text,
-                    resolved_question=req.query_text,
-                    sql="",  # No SQL yet, need clarification
-                    ir=ir.dict(),
-                    confidence=ir_resp.confidence,
-                    ambiguities=ir_resp.ambiguities,
-                    explanations=formatted_questions,
-                    suggested_fixes=["Please answer the clarification questions above"],
-                    cache_hit=False,
-                    execution_time=time.time() - start_time,
-                )
-
-        # IR -> SQL
-        sql, params = IRToMySQLCompiler().compile(ir)
-
-        # Phase 4: Analyze complexity
-        complexity_metrics = complexity_service.analyze(ir, schema)
-        optimization_suggestions = complexity_service.suggest_optimizations(complexity_metrics)
+            return NL2SQLResponse(
+                original_question=req.query_text,
+                resolved_question=req.query_text,
+                sql="",  # No SQL yet, need clarification
+                ir=ctx.ir.dict() if ctx.ir else {},
+                confidence=ctx.confidence,
+                ambiguities=ctx.ambiguities,
+                explanations=clarification_questions,
+                suggested_fixes=["Please answer the clarification questions above"],
+                cache_hit=False,
+                execution_time=time.time() - ctx.start_time,
+            )
         
-        # Phase 4: Check and correct SQL
-        corrected_sql, errors_found, corrections_applied = corrector_service.check_and_correct(
-            sql,
-            ir,
-            schema
-        )
+        # Build final response
+        execution_time = time.time() - ctx.start_time
         
-        # Use corrected SQL if corrections were applied
-        if corrections_applied:
-            sql = corrected_sql
-            logger.info(f"Applied {len(corrections_applied)} corrections to SQL")
-        
-        # Extract tables used for context tracking
-        tables_used = [ir.from_table]
-        if ir.joins:
-            tables_used.extend([j.get("table") for j in ir.joins])
-        
-        # Phase 4: Add to conversation context
-        context_service.add_turn(
-            conversation_id,
-            req.query_text,
-            sql,
-            ir.dict(),
-            tables_used
-        )
-        
-        # Build explanations
-        explanations = []
-        if ir_resp.questions:
-            explanations.extend(ir_resp.questions)
-        if complexity_metrics.warnings:
-            explanations.extend([f"Performance note: {w}" for w in complexity_metrics.warnings])
-        if errors_found:
-            explanations.extend([f"Note: {e}" for e in errors_found])
-        
-        # Build suggested fixes
-        suggested_fixes = []
-        if corrections_applied:
-            suggested_fixes.extend(corrections_applied)
-        if optimization_suggestions:
-            suggested_fixes.extend(optimization_suggestions)
-        
-        execution_time = time.time() - start_time
-        
-        logger.info(
-            f"NL2SQL completed: query='{req.query_text[:50]}...', "
-            f"confidence={ir_resp.confidence:.2f}, "
-            f"complexity={complexity_metrics.level}, "
-            f"time={execution_time:.2f}s"
+        api_logger.info(
+            "NL2SQL completed",
+            conversation_id=conversation_id,
+            database_id=database_id,
+            confidence=ctx.confidence,
+            complexity=ctx.complexity_metrics.level if ctx.complexity_metrics else "unknown",
+            execution_time=execution_time
         )
         
         return NL2SQLResponse(
             original_question=req.query_text,
-            resolved_question=context_service.resolve_references(req.query_text, conversation_id),
-            sql=sql,
-            ir=ir.dict(),
-            confidence=ir_resp.confidence,
-            ambiguities=ir_resp.ambiguities,
-            explanations=explanations,
-            suggested_fixes=suggested_fixes,
+            resolved_question=ctx.resolved_query,
+            sql=ctx.sql,
+            ir=ctx.ir.dict() if ctx.ir else {},
+            confidence=ctx.confidence,
+            ambiguities=ctx.ambiguities,
+            explanations=ctx.explanations,
+            suggested_fixes=ctx.suggested_fixes,
             cache_hit=False,
             execution_time=execution_time,
         )
+        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"NL->SQL failed: {e}", exc_info=True)
+        api_logger.error(
+            "NL2SQL pipeline failed",
+            error=e,
+            conversation_id=conversation_id,
+            database_id=database_id
+        )
         raise HTTPException(status_code=400, detail=str(e))

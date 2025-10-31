@@ -4,7 +4,7 @@ SQL corrector service for common errors
 from typing import Dict, Any, List, Tuple
 import logging
 import sqlparse
-from app.services.ir_models import QueryIR
+from app.services.ir_models import QueryIR, Expression, OrderBy, Join
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class CorrectorService:
                     errors.append(f"Non-aggregated columns in SELECT should be in GROUP BY: {', '.join(missing_group_by)}")
             
             # Check 3: Invalid aggregation usage
-            if any(col.get("aggregation") for col in ir.select if ir.select):
+            if any((isinstance(col, Expression) and col.type == "aggregate") for col in (ir.select or [])):
                 agg_errors = self._check_aggregation_validity(ir)
                 errors.extend(agg_errors)
             
@@ -92,7 +92,7 @@ class CorrectorService:
             # Get all tables in query
             tables = [ir.from_table]
             if ir.joins:
-                tables.extend([j.get("table") for j in ir.joins])
+                tables.extend([j.table for j in ir.joins if isinstance(j, Join)])
             
             # Get all columns from these tables
             table_columns = {}
@@ -144,14 +144,18 @@ class CorrectorService:
             
             # Get non-aggregated columns from SELECT
             non_agg_columns = []
-            for col in ir.select:
-                if not col.get("aggregation"):
-                    col_name = col.get("column") or col.get("expression")
-                    if col_name:
-                        non_agg_columns.append(col_name)
+            for expr in ir.select:
+                if not isinstance(expr, Expression):
+                    continue
+                if expr.type != "aggregate":
+                    # Column name: for simple column expressions, value holds table.column or column
+                    if expr.type == "column" and isinstance(expr.value, str):
+                        non_agg_columns.append(expr.value)
+                    elif expr.alias:
+                        non_agg_columns.append(expr.alias)
             
             # Get GROUP BY columns
-            group_by_cols = [g.get("column") for g in ir.group_by]
+            group_by_cols = list(ir.group_by)
             
             # Find missing columns
             missing = [col for col in non_agg_columns if col not in group_by_cols]
@@ -168,8 +172,8 @@ class CorrectorService:
         
         try:
             # Check: Aggregation without GROUP BY on non-aggregated columns
-            has_agg = any(col.get("aggregation") for col in ir.select if ir.select)
-            has_non_agg = any(not col.get("aggregation") for col in ir.select if ir.select)
+            has_agg = any((isinstance(col, Expression) and col.type == "aggregate") for col in (ir.select or []))
+            has_non_agg = any((isinstance(col, Expression) and col.type != "aggregate") for col in (ir.select or []))
             
             if has_agg and has_non_agg and not ir.group_by:
                 errors.append(
@@ -177,15 +181,14 @@ class CorrectorService:
                 )
             
             # Check: Nested aggregations (not supported in MySQL)
-            for col in ir.select if ir.select else []:
-                if col.get("aggregation"):
-                    expr = col.get("expression", "")
-                    # Simple check for nested aggregation
+            for expr in (ir.select or []):
+                if not isinstance(expr, Expression):
+                    continue
+                if expr.type == "aggregate" and isinstance(expr.value, str):
+                    inner = expr.value.upper()
                     agg_functions = ["COUNT", "SUM", "AVG", "MAX", "MIN"]
-                    if any(f"{agg}(" in expr.upper() for agg in agg_functions):
-                        errors.append(
-                            f"Nested aggregation detected in: {expr}"
-                        )
+                    if any(f"{agg}(" in inner for agg in agg_functions):
+                        errors.append(f"Nested aggregation detected in: {expr.value}")
             
             return errors
         
@@ -203,15 +206,20 @@ class CorrectorService:
             
             # Get selected columns (including aliases)
             selected = []
-            for col in ir.select:
-                if col.get("alias"):
-                    selected.append(col["alias"])
-                elif col.get("column"):
-                    selected.append(col["column"])
+            for expr in ir.select:
+                if not isinstance(expr, Expression):
+                    continue
+                if expr.alias:
+                    selected.append(expr.alias)
+                elif expr.type == "column" and isinstance(expr.value, str):
+                    selected.append(expr.value)
             
             # Check if ORDER BY columns are in SELECT (MySQL strict mode requirement)
-            for order_col in ir.order_by:
-                col_name = order_col.get("column")
+            for ob in ir.order_by:
+                if isinstance(ob, OrderBy):
+                    col_name = ob.column
+                else:
+                    continue
                 if col_name and col_name not in selected:
                     # This is actually allowed in MySQL, but may cause issues in strict mode
                     pass  # Not an error, just a note
@@ -230,7 +238,11 @@ class CorrectorService:
             
             # Check if all joins have conditions
             for join in ir.joins:
-                if not join.get("on"):
+                if isinstance(join, Join):
+                    if not join.on or len(join.on) == 0:
+                        return True  # JOIN without ON clause
+                else:
+                    # Unknown structure: be conservative
                     return True  # JOIN without ON clause
             
             return False

@@ -3,7 +3,7 @@ Query complexity analyzer
 """
 from typing import Dict, Any, List
 import logging
-from app.services.ir_models import QueryIR
+from app.services.ir_models import QueryIR, Expression, Predicate
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +49,11 @@ class ComplexityService:
             if num_tables > 5:
                 warnings.append(f"Query involves {num_tables} tables - consider breaking into smaller queries")
             
-            # Factor 2: Aggregations
-            has_aggregation = any(
-                col.get("aggregation") for col in ir.select
-            ) if ir.select else False
+            # Factor 2: Aggregations (Expression.type == 'aggregate')
+            def is_agg(expr: Expression) -> bool:
+                return isinstance(expr, Expression) and expr.type == "aggregate"
+
+            has_aggregation = any(is_agg(col) for col in (ir.select or []))
             factors["has_aggregation"] = has_aggregation
             if has_aggregation:
                 score += 10
@@ -80,12 +81,11 @@ class ComplexityService:
                 if len(ir.ctes) > 2:
                     warnings.append(f"Query uses {len(ir.ctes)} CTEs - may be difficult to optimize")
             
-            # Factor 6: WHERE complexity
+            # Factor 6: WHERE complexity (list[Predicate])
             if ir.where:
-                where_complexity = self._analyze_condition_complexity(ir.where)
+                where_complexity = self._predicate_list_complexity(ir.where)
                 factors["where_complexity"] = where_complexity
                 score += where_complexity * 5
-                
                 if where_complexity > 5:
                     warnings.append("Complex WHERE clause with many conditions")
             
@@ -117,47 +117,34 @@ class ComplexityService:
             logger.error(f"Failed to analyze complexity: {e}")
             # Return default simple complexity
             return ComplexityMetrics(0, "simple", {}, [])
-    
-    def _analyze_condition_complexity(self, condition: Dict[str, Any]) -> int:
-        """
-        Recursively analyze WHERE/HAVING condition complexity
-        Returns: complexity score (0-10)
-        """
+
+    def _predicate_list_complexity(self, predicates: List[Predicate]) -> int:
+        """Score a list of Predicates. More predicates and more complex operators increase score."""
         try:
-            if not condition:
+            if not predicates:
                 return 0
-            
             complexity = 0
-            
-            # Check for logical operators
-            if "and" in condition:
-                complexity += 1 + sum(
-                    self._analyze_condition_complexity(c)
-                    for c in condition["and"]
-                )
-            
-            if "or" in condition:
-                complexity += 2 + sum(  # OR is more complex than AND
-                    self._analyze_condition_complexity(c)
-                    for c in condition["or"]
-                )
-            
-            # Check for operators
-            if "operator" in condition:
-                op = condition["operator"]
-                if op in ["IN", "NOT IN"]:
+            for p in predicates:
+                if not isinstance(p, Predicate):
+                    continue
+                # Base cost per predicate
+                complexity += 1
+                op = (p.operator or "").upper()
+                if op in ("IN", "NOT IN"):
                     complexity += 2
-                elif op in ["LIKE", "NOT LIKE"]:
+                elif op in ("LIKE", "NOT LIKE", "BETWEEN"):
                     complexity += 1
-                elif op in ["BETWEEN"]:
+                # Conjunction weight (OR is costlier)
+                if p.conjunction == "OR":
                     complexity += 1
-                else:
-                    complexity += 0.5
-            
-            return min(complexity, 10)  # Cap at 10
-        
+                # Function/aggregate in expressions adds cost
+                for side in (p.left, p.right):
+                    if isinstance(side, Expression):
+                        if side.type in ("function", "aggregate", "subquery", "window"):
+                            complexity += 1
+            return min(int(complexity), 10)
         except Exception as e:
-            logger.error(f"Failed to analyze condition complexity: {e}")
+            logger.error(f"Failed to analyze predicate complexity: {e}")
             return 0
     
     def suggest_optimizations(self, metrics: ComplexityMetrics) -> List[str]:
