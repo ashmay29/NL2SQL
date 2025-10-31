@@ -4,7 +4,7 @@ FastAPI main application
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.v1 import health, schema, embeddings, nl2sql
+from app.api.v1 import health, schema, embeddings, nl2sql, diagnostics, feedback
 import logging
 
 # Configure logging
@@ -38,6 +38,8 @@ app.include_router(health.router, tags=["Health"])
 app.include_router(schema.router, prefix="/api/v1", tags=["Schema"])
 app.include_router(embeddings.router, prefix="/api/v1", tags=["Embeddings"])
 app.include_router(nl2sql.router, prefix="/api/v1", tags=["NL2SQL"])
+app.include_router(feedback.router, prefix="/api/v1", tags=["Feedback"])
+app.include_router(diagnostics.router, prefix="/api/v1", tags=["Diagnostics"])
 
 @app.on_event("startup")
 async def startup_event():
@@ -48,6 +50,16 @@ async def startup_event():
     logger.info(f"LLM Provider: {settings.LLM_PROVIDER}")
     logger.info(f"Embedding Model: {settings.EMBEDDING_MODEL}")
     logger.info("=" * 60)
+    
+    # Initialize Qdrant collections
+    try:
+        from app.core.dependencies import get_qdrant_service, get_embedding_service
+        qdrant = get_qdrant_service()
+        embeddings = get_embedding_service()
+        await qdrant.init_collections(vector_dim=embeddings.get_dimension())
+        logger.info("Qdrant collections initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize Qdrant collections: {e}")
 
 
 @app.on_event("shutdown")

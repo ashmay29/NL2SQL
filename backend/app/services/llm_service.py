@@ -5,6 +5,7 @@ import requests
 import json
 from typing import Dict, Any, Optional
 import logging
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -54,22 +55,28 @@ class LLMService:
         """Generate using Ollama"""
         try:
             url = f"{self.ollama_endpoint}/api/generate"
+            # Ollama API expects num_predict (not max_tokens) and can accept options.num_ctx.
+            # Large schema prompts can overflow default context; set a higher num_ctx.
             payload = {
                 "model": self.ollama_model,
                 "prompt": prompt,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": False
+                "num_predict": max(32, min(getattr(settings, 'OLLAMA_NUM_PREDICT', 128), 512)),
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_ctx": int(getattr(settings, 'OLLAMA_NUM_CTX', 4096))
+                }
             }
             
-            response = requests.post(url, json=payload, timeout=60)
+            response = requests.post(url, json=payload, timeout=120)
             response.raise_for_status()
             
             result = response.json()
             return result.get("response", "")
             
         except Exception as e:
-            logger.error(f"Ollama generation failed: {e}")
+            # Improve error context to aid debugging (e.g., 500 due to context overflow)
+            logger.error(f"Ollama generation failed: {e}\nEndpoint={self.ollama_endpoint} Model={self.ollama_model}")
             raise
     
     def _generate_gemini(
@@ -108,6 +115,16 @@ class LLMService:
         provider_override: Optional[str] = None
     ) -> Dict[str, Any]:
         """Generate JSON response (for IR generation)"""
+        provider = provider_override or self.provider
+        # Prefer Ollama chat API with format=json to force valid JSON
+        if provider == "ollama":
+            try:
+                json_text = self._ollama_chat_json(prompt)
+                return json.loads(json_text)
+            except Exception as e:
+                logger.error(f"Ollama chat/json failed, falling back to generate: {e}")
+                # Fall through to text generation + extraction
+
         response_text = self.generate(
             prompt,
             temperature=0.3,  # Lower temperature for structured output
@@ -131,3 +148,30 @@ class LLMService:
                 return json.loads(json_match.group(0))
             
             raise ValueError(f"Could not extract JSON from response: {response_text[:200]}")
+
+    def _ollama_chat_json(self, prompt: str) -> str:
+        """Use Ollama chat API with format=json to force JSON-only output."""
+        try:
+            url = f"{self.ollama_endpoint}/api/chat"
+            payload = {
+                "model": self.ollama_model,
+                "messages": [
+                    {"role": "system", "content": "You return only valid JSON without any extra text."},
+                    {"role": "user", "content": prompt}
+                ],
+                "stream": False,
+                "format": "json",
+                "options": {
+                    "temperature": 0.1,
+                    "num_ctx": int(getattr(settings, 'OLLAMA_NUM_CTX', 4096)),
+                    "num_predict": max(32, min(getattr(settings, 'OLLAMA_NUM_PREDICT', 128), 512))
+                }
+            }
+            resp = requests.post(url, json=payload, timeout=120)
+            resp.raise_for_status()
+            data = resp.json()
+            # Ollama chat returns { message: { content: "..." } }
+            return data.get("message", {}).get("content", "")
+        except Exception as e:
+            logger.error(f"Ollama chat API failed: {e}\nEndpoint={self.ollama_endpoint} Model={self.ollama_model}")
+            raise

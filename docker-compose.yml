@@ -74,10 +74,19 @@ services:
       - "8000:8000"
     environment:
       - APP_ENV=development
+      - SECRET_KEY=dev-secret-key-change-in-production
+      - JWT_SECRET_KEY=dev-jwt-secret-key-change-in-production
       - MYSQL_URI=mysql+pymysql://root:password@mysql:3306/nl2sql_target
       - APP_DB_URI=postgresql://postgres:password@postgres:5432/nl2sql_app
       - REDIS_URI=redis://redis:6379/0
       - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_ENDPOINT=http://host.docker.internal:11434
+      - LLM_PROVIDER=gemini
+      - GEMINI_API_KEY=AIzaSyAzAl4HUW4R-d5T2TQnD6akRnIuMl1EnfI
+      - GEMINI_MODEL=gemini-2.0-flash-exp
+      - EMBEDDING_PROVIDER=mock
+      - COMPACT_SCHEMA=true
+      - MAX_COLUMNS_IN_PROMPT=8
     volumes:
       - ./backend:/app
     depends_on:

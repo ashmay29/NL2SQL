@@ -29,11 +29,14 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "ollama"  # ollama | gemini
     OLLAMA_ENDPOINT: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "mistral:latest"
+    OLLAMA_NUM_CTX: int = 4096
+    OLLAMA_NUM_PREDICT: int = 128
     USE_GEMINI_FOR_FEEDBACK: bool = True
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
     
     # Embeddings
+    EMBEDDING_PROVIDER: str = "mock"  # mock | gnn
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
     
     # Limits
@@ -44,6 +47,8 @@ class Settings(BaseSettings):
     # Schema
     SCHEMA_REFRESH_TTL_SEC: int = 3600
     SCHEMA_DIFF_STRATEGY: str = "fingerprint"
+    COMPACT_SCHEMA: bool = True
+    MAX_COLUMNS_IN_PROMPT: int = 8
     
     # Features
     IR_ADVANCED_FEATURES_ENABLED: bool = True
