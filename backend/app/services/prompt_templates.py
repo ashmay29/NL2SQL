@@ -99,6 +99,9 @@ def build_ir_prompt(
         "- ctes MUST have 'name' and 'query' fields (not 'cte_name' or 'cte_definition')",
         "- direction must be 'ASC' or 'DESC' (uppercase)",
         "- type for joins must be one of: INNER, LEFT, RIGHT, FULL, CROSS",
+        "- If ORDER BY uses an aggregate like COUNT(*), that aggregate MUST also appear in SELECT",
+        "- For aggregates in SELECT, use type='aggregate', function='COUNT', args=[...], not type='column'",
+        "- When grouping, include all non-aggregated SELECT columns in group_by",
     ])
     
     return "\n".join(prompt_parts)

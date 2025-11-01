@@ -20,6 +20,7 @@ class IRValidator:
 
         # Collect available tables from joins and CTEs
         available_tables = [ir.from_table] + [j.table for j in ir.joins] + [cte.name for cte in ir.ctes]
+        cte_names = {cte.name for cte in ir.ctes}
 
         # Validate SELECT
         for expr in ir.select:
@@ -27,7 +28,8 @@ class IRValidator:
 
         # Validate JOINs
         for join in ir.joins:
-            if join.table not in self.schema.get("tables", {}):
+            # Skip validation for CTE references (they're virtual tables)
+            if join.table not in cte_names and join.table not in self.schema.get("tables", {}):
                 errors.append(f"JOIN table '{join.table}' does not exist")
             for pred in join.on:
                 errors.extend(self._validate_predicate(pred, available_tables))
@@ -47,7 +49,26 @@ class IRValidator:
 
         # Validate ORDER BY
         for ob in ir.order_by:
-            errors.extend(self._validate_column_reference(ob.column, available_tables))
+            # ORDER BY can reference columns or expressions like COUNT(*), SUM(col), etc.
+            # Only validate if it looks like a simple column reference (no parentheses)
+            if '(' not in ob.column:
+                errors.extend(self._validate_column_reference(ob.column, available_tables))
+            else:
+                # If ORDER BY uses an aggregate, warn if it's not in SELECT (SQL requires it)
+                # Extract the aggregate expression (simplified check)
+                order_expr = ob.column.strip()
+                select_exprs = []
+                for s in ir.select:
+                    if s.type in ('aggregate', 'function') and s.function:
+                        # Reconstruct the expression
+                        args_str = ', '.join([a.value if a.type == 'column' else str(a.value) for a in (s.args or [])])
+                        select_exprs.append(f"{s.function}({args_str})")
+                    elif s.alias:
+                        select_exprs.append(s.alias)
+                
+                # Check if the ORDER BY expression matches any SELECT expression or alias
+                if order_expr not in select_exprs and not any(order_expr == s.alias for s in ir.select if s.alias):
+                    errors.append(f"ORDER BY expression '{order_expr}' must appear in SELECT when using aggregates")
 
         # Validate CTEs recursively
         for cte in ir.ctes:

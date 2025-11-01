@@ -51,7 +51,14 @@ class IRToMySQLCompiler:
 
         # ORDER BY
         if ir.order_by:
-            order_parts = [f"{self._quote_column(o.column)} {o.direction.value}" for o in ir.order_by]
+            order_parts = []
+            for o in ir.order_by:
+                # If column contains function call (e.g., COUNT(*), SUM(col)), use as-is
+                # Otherwise quote it as a column reference
+                if '(' in o.column:
+                    order_parts.append(f"{o.column} {o.direction.value}")
+                else:
+                    order_parts.append(f"{self._quote_column(o.column)} {o.direction.value}")
             sql_parts.append("ORDER BY " + ", ".join(order_parts))
 
         # LIMIT/OFFSET

@@ -1,16 +1,14 @@
 import { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Database, Sparkles, Upload } from 'lucide-react';
+import { Home, Sparkles } from 'lucide-react';
 
 interface LayoutProps {
   children: ReactNode;
 }
 
 const navItems = [
-  { path: '/', icon: Home, label: 'Dashboard' },
-  { path: '/schema', icon: Database, label: 'Schema' },
+  { path: '/', icon: Home, label: 'Home' },
   { path: '/playground', icon: Sparkles, label: 'Playground' },
-  { path: '/embeddings', icon: Upload, label: 'Embeddings' },
 ];
 
 export const Layout = ({ children }: LayoutProps) => {

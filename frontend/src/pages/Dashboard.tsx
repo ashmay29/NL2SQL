@@ -1,140 +1,168 @@
+import { Link } from 'react-router-dom';
+import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Badge } from '../components/ui/Badge';
-import { Spinner } from '../components/ui/Spinner';
-import { useHealth, useSchema } from '../api/hooks';
-import { Activity, Database, Cpu, HardDrive } from 'lucide-react';
+import { Sparkles, Zap, Shield, TrendingUp, ArrowRight, Database, Code, Brain } from 'lucide-react';
 
 export const Dashboard = () => {
-  const { data: health, isLoading: healthLoading } = useHealth();
-  const { data: schema, isLoading: schemaLoading } = useSchema();
-
-  const getStatusVariant = (status?: string): 'success' | 'warning' | 'error' => {
-    if (status === 'healthy') return 'success';
-    if (status === 'degraded') return 'warning';
-    return 'error';
-  };
-
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-4xl font-semibold text-apple-gray-900 mb-2">Dashboard</h1>
-        <p className="text-apple-gray-500">System overview and health status</p>
-      </div>
+    <div className="space-y-20">
+      {/* Hero Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center min-h-[70vh]">
+        {/* Left: Text Content */}
+        <div className="space-y-6">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-apple-blue/10 rounded-full">
+            <Sparkles className="w-4 h-4 text-apple-blue" />
+            <span className="text-sm font-medium text-apple-blue">AI-Powered SQL Generation</span>
+          </div>
+          
+          <h1 className="text-5xl lg:text-6xl font-bold text-apple-gray-900 leading-tight">
+            Transform Natural Language into{' '}
+            <span className="text-apple-blue">SQL Queries</span>
+          </h1>
+          
+          <p className="text-xl text-apple-gray-600 leading-relaxed">
+            Leverage advanced AI to convert your questions into optimized SQL queries instantly. 
+            No SQL knowledge required—just ask in plain English.
+          </p>
+          
+          <div className="flex items-center gap-4 pt-4">
+            <Link to="/playground">
+              <Button size="lg" className="group">
+                Try Playground
+                <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+              </Button>
+            </Link>
+            <Button variant="outline" size="lg">
+              View Documentation
+            </Button>
+          </div>
 
-      {/* System Health */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card hover>
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-apple-blue/10 rounded-xl">
-              <Activity className="w-6 h-6 text-apple-blue" />
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-6 pt-8">
+            <div>
+              <p className="text-3xl font-bold text-apple-gray-900">95%</p>
+              <p className="text-sm text-apple-gray-500">Accuracy</p>
             </div>
             <div>
-              <p className="text-sm text-apple-gray-500">System Status</p>
-              {healthLoading ? (
-                <Spinner size="sm" />
-              ) : (
-                <Badge variant={getStatusVariant(health?.status)}>
-                  {health?.status?.toUpperCase() || 'UNKNOWN'}
-                </Badge>
-              )}
-            </div>
-          </div>
-        </Card>
-
-        <Card hover>
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-apple-green/10 rounded-xl">
-              <Database className="w-6 h-6 text-apple-green" />
+              <p className="text-3xl font-bold text-apple-gray-900">&lt;2s</p>
+              <p className="text-sm text-apple-gray-500">Response Time</p>
             </div>
             <div>
-              <p className="text-sm text-apple-gray-500">Schema Version</p>
-              {schemaLoading ? (
-                <Spinner size="sm" />
-              ) : (
-                <p className="text-lg font-semibold text-apple-gray-900">
-                  {schema?.version?.substring(0, 8) || 'N/A'}
-                </p>
-              )}
+              <p className="text-3xl font-bold text-apple-gray-900">24/7</p>
+              <p className="text-sm text-apple-gray-500">Availability</p>
             </div>
           </div>
-        </Card>
+        </div>
 
-        <Card hover>
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-apple-orange/10 rounded-xl">
-              <HardDrive className="w-6 h-6 text-apple-orange" />
-            </div>
-            <div>
-              <p className="text-sm text-apple-gray-500">Tables</p>
-              {schemaLoading ? (
-                <Spinner size="sm" />
-              ) : (
-                <p className="text-lg font-semibold text-apple-gray-900">
-                  {Object.keys(schema?.tables || {}).length}
-                </p>
-              )}
-            </div>
-          </div>
-        </Card>
-
-        <Card hover>
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-apple-red/10 rounded-xl">
-              <Cpu className="w-6 h-6 text-apple-red" />
-            </div>
-            <div>
-              <p className="text-sm text-apple-gray-500">Redis</p>
-              {healthLoading ? (
-                <Spinner size="sm" />
-              ) : (
-                <Badge variant={getStatusVariant(health?.services?.redis)}>
-                  {health?.services?.redis?.toUpperCase() || 'UNKNOWN'}
-                </Badge>
-              )}
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Services Status */}
-      <Card>
-        <h2 className="text-xl font-semibold text-apple-gray-900 mb-4">Services</h2>
-        {healthLoading ? (
-          <Spinner />
-        ) : (
-          <div className="space-y-3">
-            {health?.services && Object.entries(health.services).map(([service, status]) => (
-              <div key={service} className="flex items-center justify-between p-3 bg-apple-gray-50 rounded-xl">
-                <span className="text-apple-gray-700 font-medium capitalize">{service}</span>
-                <Badge variant={getStatusVariant(status)}>{status}</Badge>
+        {/* Right: Visual */}
+        <div className="relative">
+          <div className="relative z-10">
+            <Card className="p-6 space-y-4 bg-gradient-to-br from-apple-blue/5 to-apple-purple/5 border-2 border-apple-blue/20">
+              {/* NL Query */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-apple-gray-500">
+                  <Brain className="w-4 h-4" />
+                  <span>Natural Language</span>
+                </div>
+                <div className="p-4 bg-white rounded-lg border border-apple-gray-200 shadow-sm">
+                  <p className="text-apple-gray-900 font-medium">
+                    "Show me the top 5 customers who spent the most last month"
+                  </p>
+                </div>
               </div>
-            ))}
-          </div>
-        )}
-      </Card>
 
-      {/* Schema Info */}
-      {schema && (
-        <Card>
-          <h2 className="text-xl font-semibold text-apple-gray-900 mb-4">Schema Information</h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-apple-gray-500">Database:</span>
-              <span className="font-medium text-apple-gray-900">{schema.database}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-apple-gray-500">Extracted:</span>
-              <span className="font-medium text-apple-gray-900">
-                {new Date(schema.extracted_at).toLocaleString()}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-apple-gray-500">Relationships:</span>
-              <span className="font-medium text-apple-gray-900">{schema.relationships.length}</span>
-            </div>
+              {/* Arrow */}
+              <div className="flex justify-center">
+                <div className="p-2 bg-apple-blue rounded-full">
+                  <ArrowRight className="w-5 h-5 text-white rotate-90" />
+                </div>
+              </div>
+
+              {/* SQL Output */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-apple-gray-500">
+                  <Code className="w-4 h-4" />
+                  <span>Generated SQL</span>
+                </div>
+                <div className="p-4 bg-apple-gray-900 rounded-lg shadow-lg">
+                  <pre className="text-xs text-green-400 font-mono">
+{`SELECT c.name, SUM(o.total) as spent
+FROM customers c
+JOIN orders o ON c.id = o.customer_id
+WHERE o.date >= DATE_SUB(NOW(), INTERVAL 1 MONTH)
+GROUP BY c.id, c.name
+ORDER BY spent DESC
+LIMIT 5;`}
+                  </pre>
+                </div>
+              </div>
+            </Card>
           </div>
-        </Card>
-      )}
+
+          {/* Background Decoration */}
+          <div className="absolute inset-0 -z-10">
+            <div className="absolute top-0 right-0 w-72 h-72 bg-apple-blue/10 rounded-full blur-3xl" />
+            <div className="absolute bottom-0 left-0 w-72 h-72 bg-apple-purple/10 rounded-full blur-3xl" />
+          </div>
+        </div>
+      </div>
+
+      {/* Features Section */}
+      <div className="space-y-12">
+        <div className="text-center space-y-4">
+          <h2 className="text-3xl font-bold text-apple-gray-900">Why Choose NL2SQL?</h2>
+          <p className="text-lg text-apple-gray-600 max-w-2xl mx-auto">
+            Built with cutting-edge AI technology to make database querying accessible to everyone
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card hover className="p-6 space-y-4">
+            <div className="p-3 bg-apple-blue/10 rounded-xl w-fit">
+              <Zap className="w-6 h-6 text-apple-blue" />
+            </div>
+            <h3 className="text-xl font-semibold text-apple-gray-900">Lightning Fast</h3>
+            <p className="text-apple-gray-600">
+              Get instant SQL queries with sub-second response times. Our optimized AI pipeline ensures rapid results.
+            </p>
+          </Card>
+
+          <Card hover className="p-6 space-y-4">
+            <div className="p-3 bg-apple-green/10 rounded-xl w-fit">
+              <Shield className="w-6 h-6 text-apple-green" />
+            </div>
+            <h3 className="text-xl font-semibold text-apple-gray-900">Secure & Reliable</h3>
+            <p className="text-apple-gray-600">
+              Enterprise-grade security with parameterized queries and SQL injection prevention built-in.
+            </p>
+          </Card>
+
+          <Card hover className="p-6 space-y-4">
+            <div className="p-3 bg-apple-orange/10 rounded-xl w-fit">
+              <TrendingUp className="w-6 h-6 text-apple-orange" />
+            </div>
+            <h3 className="text-xl font-semibold text-apple-gray-900">Continuously Learning</h3>
+            <p className="text-apple-gray-600">
+              Our AI improves with every query through feedback loops and RAG-enhanced learning.
+            </p>
+          </Card>
+        </div>
+      </div>
+
+      {/* CTA Section */}
+      <Card className="p-12 bg-gradient-to-r from-apple-blue to-apple-purple text-white text-center space-y-6">
+        <Database className="w-16 h-16 mx-auto opacity-90" />
+        <h2 className="text-3xl font-bold">Ready to Get Started?</h2>
+        <p className="text-lg opacity-90 max-w-2xl mx-auto">
+          Start generating SQL queries from natural language in seconds. No credit card required.
+        </p>
+        <Link to="/playground">
+          <Button size="lg" variant="secondary" className="group">
+            Launch Playground
+            <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+          </Button>
+        </Link>
+      </Card>
     </div>
   );
 };

@@ -45,6 +45,7 @@ async def nl2ir(
     llm: LLMService = Depends(get_llm_service),
     feedback_service: FeedbackService = Depends(get_feedback_service),
     context_service: ContextService = Depends(get_context_service),
+    orchestrator: PipelineOrchestrator = Depends(get_pipeline_orchestrator),
     use_rag: bool = True
 ):
     try:
@@ -80,6 +81,11 @@ async def nl2ir(
 
         # Generate IR JSON (use configured provider)
         ir_json: Dict[str, Any] = llm.generate_json(prompt)
+        # Sanitize/normalize provider IR to match our schema (reuse pipeline sanitizer)
+        try:
+            orchestrator._sanitize_ir_json(ir_json)  # type: ignore[attr-defined]
+        except Exception as _e:
+            logger.debug(f"IR sanitization skipped/failed with: {_e}")
 
         # Validate IR
         ir = QueryIR(**ir_json)
@@ -103,9 +109,16 @@ async def nl2ir(
 
 
 @router.post("/ir2sql", response_model=IR2SQLResponse)
-async def ir2sql(req: IR2SQLRequest):
+async def ir2sql(req: IR2SQLRequest, orchestrator: PipelineOrchestrator = Depends(get_pipeline_orchestrator)):
     try:
-        ir = QueryIR(**req.ir)
+        # Make a mutable copy and sanitize before validation/compilation
+        ir_payload: Dict[str, Any] = dict(req.ir)
+        try:
+            orchestrator._sanitize_ir_json(ir_payload)  # type: ignore[attr-defined]
+        except Exception as _e:
+            logger.debug(f"IR sanitization skipped/failed with: {_e}")
+
+        ir = QueryIR(**ir_payload)
         sql, params = IRToMySQLCompiler().compile(ir)
         return IR2SQLResponse(sql=sql, params=params)
     except Exception as e:

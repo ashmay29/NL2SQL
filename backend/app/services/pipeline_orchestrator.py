@@ -188,8 +188,47 @@ class PipelineOrchestrator:
                                 item["type"] = "subquery"
                             else:
                                 item["type"] = "column"
+                            # Normalize args for aggregates/functions
+                            if item["type"] in ("aggregate", "function"):
+                                args = item.get("args", [])
+                                if isinstance(args, list):
+                                    normalized_args = []
+                                    for arg in args:
+                                        if isinstance(arg, str):
+                                            normalized_args.append({"type": "column", "value": arg})
+                                        elif isinstance(arg, dict):
+                                            normalized_args.append(arg)
+                                        else:
+                                            normalized_args.append({"type": "literal", "value": arg})
+                                    item["args"] = normalized_args
                             normalized_select.append(item)
                         else:
+                            # For items with type already set or inferred from function field
+                            # Infer type if missing but function field exists
+                            if "type" not in item and item.get("function"):
+                                item["type"] = "aggregate"
+                            
+                            # For aggregate/function types, ensure args are Expression objects
+                            if item.get("type") in ("aggregate", "function"):
+                                # Add value field if missing (required by Expression model)
+                                if "value" not in item:
+                                    item["value"] = item.get("function", "")
+                                # Normalize args: convert strings to Expression dicts
+                                args = item.get("args", [])
+                                if isinstance(args, list):
+                                    normalized_args = []
+                                    for arg in args:
+                                        if isinstance(arg, str):
+                                            # Handle special case for '*' in COUNT(*)
+                                            if arg == "*":
+                                                normalized_args.append({"type": "column", "value": "*"})
+                                            else:
+                                                normalized_args.append({"type": "column", "value": arg})
+                                        elif isinstance(arg, dict):
+                                            normalized_args.append(arg)
+                                        else:
+                                            normalized_args.append({"type": "literal", "value": arg})
+                                    item["args"] = normalized_args
                             normalized_select.append(item)
                     else:
                         normalized_select.append(item)
