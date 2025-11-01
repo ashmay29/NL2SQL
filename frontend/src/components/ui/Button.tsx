@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react';
 interface ButtonProps {
   children: ReactNode;
   onClick?: () => void;
-  variant?: 'primary' | 'secondary' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'outline';
   size?: 'sm' | 'md' | 'lg';
   loading?: boolean;
   disabled?: boolean;
@@ -29,6 +29,7 @@ export const Button = ({
     primary: 'bg-apple-blue text-white hover:bg-apple-blue/90 active:scale-95',
     secondary: 'bg-apple-gray-100 text-apple-gray-900 hover:bg-apple-gray-200 active:scale-95',
     ghost: 'bg-transparent text-apple-gray-700 hover:bg-apple-gray-100 active:scale-95',
+    outline: 'bg-white border border-apple-gray-200 text-apple-gray-700 hover:bg-apple-gray-50 active:scale-95',
   };
 
   const sizeClasses = {

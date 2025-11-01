@@ -5,6 +5,7 @@ Coordinates all Phase 3 & 4 services in a clean, testable way
 from typing import Dict, Any, List, Tuple, Optional
 import logging
 import time
+import json
 from app.services.schema_service import SchemaService
 from app.services.llm_service import LLMService
 from app.services.feedback_service import FeedbackService
@@ -124,8 +125,12 @@ class PipelineOrchestrator:
             prompt = build_ir_prompt(schema_text, ctx.resolved_query, rag_examples, context)
             ir_json = self.llm_service.generate_json(prompt)
 
+            # Log raw IR for debugging
+            logger.debug(f"Raw IR from LLM: {json.dumps(ir_json, indent=2)[:500]}")
+
             # Sanitize/normalize IR JSON from provider to match our schema
             self._sanitize_ir_json(ir_json)
+            logger.debug(f"Sanitized IR: {json.dumps(ir_json, indent=2)[:500]}")
             
             # Validate IR
             ctx.ir = QueryIR(**ir_json)
@@ -149,8 +154,11 @@ class PipelineOrchestrator:
         Normalize provider output to conform to QueryIR expectations.
         - order_by[].column: map from 'value' if provider used a different key
         - order_by[].column: also map from 'field' if provider used that key
+        - order_by[].column: also map from 'col' if provider used that key
         - order_by[].direction: uppercase and coerce to 'ASC'|'DESC' (default 'ASC')
         - select: if list contains strings, convert to Expression dicts {type:'column', value:str}
+        - ctes[]: map 'cte_name' -> 'name', 'cte_query' -> 'query'
+        - joins[]: map 'join_type' -> 'type'; if 'on' is a string like "a = b", coerce into Predicate list
         - future: add more normalizations as needed
         Modifies ir_json in place.
         """
@@ -197,6 +205,9 @@ class PipelineOrchestrator:
                         # Or map 'field' -> 'column'
                         if "column" not in item and "field" in item:
                             item["column"] = item.pop("field")
+                        # Or map 'col' -> 'column'
+                        if "column" not in item and "col" in item:
+                            item["column"] = item.pop("col")
                         # Uppercase direction and validate
                         direction = item.get("direction")
                         if isinstance(direction, str):
@@ -205,11 +216,93 @@ class PipelineOrchestrator:
                         else:
                             # Default to ASC if missing/invalid
                             item["direction"] = "ASC"
-            # Additional normalizations can be added here as providers evolve
+            
+            # Normalize CTEs
+            ctes = ir_json.get("ctes")
+            if isinstance(ctes, list):
+                for cte in ctes:
+                    if isinstance(cte, dict):
+                        # Map name variants
+                        if "name" not in cte and "cte_name" in cte:
+                            cte["name"] = cte.pop("cte_name")
+                        # Map query variants
+                        if "query" not in cte:
+                            if "cte_query" in cte:
+                                cte["query"] = cte.pop("cte_query")
+                            elif "cte_definition" in cte:
+                                cte["query"] = cte.pop("cte_definition")
+                            elif "definition" in cte:
+                                cte["query"] = cte.pop("definition")
+
+            # Normalize JOINs
+            joins = ir_json.get("joins")
+            if isinstance(joins, list):
+                for j in joins:
+                    if isinstance(j, dict):
+                        # Map type variants
+                        if "type" not in j and "join_type" in j:
+                            raw = str(j.pop("join_type"))
+                            up = raw.upper().replace(" JOIN", "").replace("JOIN", "").strip()
+                            if up not in {"INNER", "LEFT", "RIGHT", "FULL", "CROSS"}:
+                                up = "INNER"
+                            j["type"] = up
+                        # Map table variants
+                        if "table" not in j:
+                            if "target_table" in j:
+                                j["table"] = j.pop("target_table")
+                            elif "join_table" in j:
+                                j["table"] = j.pop("join_table")
+                        # Map on/condition variants
+                        if "on" not in j:
+                            if "condition" in j:
+                                j["on"] = j.pop("condition")
+                            elif "join_condition" in j:
+                                j["on"] = j.pop("join_condition")
+                        # Coerce 'on' from string into a Predicate list when possible
+                        on_clause = j.get("on")
+                        if isinstance(on_clause, str):
+                            pred = self._parse_simple_on_clause(on_clause)
+                            if pred:
+                                j["on"] = [pred]
+                        # Ensure 'on' is at least a list
+                        if isinstance(j.get("on"), dict):
+                            j["on"] = [j["on"]]
         except Exception as e:
             # Non-fatal: log and continue; validator may still catch issues
             logger.warning(f"IR sanitize step encountered an issue: {e}")
-    
+        
+    def _parse_simple_on_clause(self, clause: str) -> Optional[Dict[str, Any]]:
+        """
+        Parse very simple ON clauses like "a.col = b.col" or "a.col>=b.col" into
+        a Predicate dict compatible with IR schema. Best-effort only.
+        """
+        try:
+            # Supported operators ordered by length to avoid partial splits
+            operators = [
+                ">=",
+                "<=",
+                "!=",
+                "=",
+                ">",
+                "<",
+            ]
+            clause_no_spaces = clause.strip()
+            for op in operators:
+                if op in clause_no_spaces:
+                    left, right = clause_no_spaces.split(op, 1)
+                    left = left.strip()
+                    right = right.strip()
+                    if left and right:
+                        return {
+                            "left": {"type": "column", "value": left},
+                            "operator": op,
+                            "right": {"type": "column", "value": right},
+                            "conjunction": "AND",
+                        }
+            return None
+        except Exception:
+            return None
+
     def check_clarification_needed(self, ctx: PipelineContext) -> Optional[List[str]]:
         """Step 3: Check if clarification is needed"""
         try:
@@ -288,7 +381,8 @@ class PipelineOrchestrator:
             # Extract tables used for context tracking
             tables_used = [ctx.ir.from_table]
             if ctx.ir.joins:
-                tables_used.extend([j.get("table") for j in ctx.ir.joins])
+                # ctx.ir.joins is a list of Join objects
+                tables_used.extend([j.table for j in ctx.ir.joins])
             
             # Add to conversation context
             self.context_service.add_turn(

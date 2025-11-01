@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { useUploadEmbeddings, useSchema } from '../api/hooks';
 import { Upload, CheckCircle, AlertCircle } from 'lucide-react';
@@ -30,9 +29,9 @@ export const EmbeddingsManager = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-semibold text-apple-gray-900 mb-2">Embeddings Manager</h1>
+        <h1 className="text-4xl font-semibold text-apple-gray-900 mb-2">Embeddings</h1>
         <p className="text-apple-gray-500">Upload GNN embeddings for schema linking</p>
       </div>
 

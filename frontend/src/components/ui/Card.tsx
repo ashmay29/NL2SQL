@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { ReactNode } from 'react';
 
 interface CardProps {
@@ -9,14 +8,14 @@ interface CardProps {
 
 export const Card = ({ children, className = '', hover = false }: CardProps) => {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      whileHover={hover ? { y: -2, boxShadow: '0 12px 32px rgba(0, 0, 0, 0.1)' } : {}}
-      className={`bg-white rounded-2xl shadow-apple p-6 ${className}`}
+    <div
+      className={`
+        bg-white rounded-xl border border-apple-gray-200 p-6 transition-all
+        ${hover ? 'hover:border-apple-gray-300 hover:shadow-sm' : ''}
+        ${className}
+      `}
     >
       {children}
-    </motion.div>
+    </div>
   );
 };

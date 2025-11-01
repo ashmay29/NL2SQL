@@ -18,8 +18,8 @@ class IRValidator:
         if ir.from_table not in self.schema.get("tables", {}):
             errors.append(f"Table '{ir.from_table}' does not exist")
 
-        # Collect available tables from joins
-        available_tables = [ir.from_table] + [j.table for j in ir.joins]
+        # Collect available tables from joins and CTEs
+        available_tables = [ir.from_table] + [j.table for j in ir.joins] + [cte.name for cte in ir.ctes]
 
         # Validate SELECT
         for expr in ir.select:
@@ -86,13 +86,17 @@ class IRValidator:
             table, column = ref.split(".", 1)
             if table not in available_tables:
                 errors.append(f"Table '{table}' not in query")
+            # Skip column validation for CTEs (they're not in schema tables)
+            elif table not in tables:
+                # CTE reference - skip column validation as CTE columns aren't in schema
+                pass
             elif column != "*" and column not in [c["name"] for c in tables[table]["columns"]]:
                 errors.append(f"Column '{column}' not in table '{table}'")
         else:
             # Unqualified column must exist in exactly one table to be unambiguous
             found_in = []
             for t in available_tables:
-                if ref in [c["name"] for c in tables.get(t, {}).get("columns", [])]:
+                if t in tables and ref in [c["name"] for c in tables[t]["columns"]]:
                     found_in.append(t)
             if len(found_in) == 0:
                 errors.append(f"Column '{ref}' not found in any table")

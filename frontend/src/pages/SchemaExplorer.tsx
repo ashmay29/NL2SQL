@@ -28,15 +28,15 @@ export const SchemaExplorer = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-semibold text-apple-gray-900 mb-2">Schema Explorer</h1>
+          <h1 className="text-4xl font-semibold text-apple-gray-900 mb-2">Schema</h1>
           <p className="text-apple-gray-500">Database structure and relationships</p>
         </div>
-        <Button onClick={handleRefresh} loading={refreshMutation.isPending}>
+        <Button onClick={handleRefresh} loading={refreshMutation.isPending} variant="outline">
           <RefreshCw className="w-4 h-4" />
-          Refresh Schema
+          Refresh
         </Button>
       </div>
 

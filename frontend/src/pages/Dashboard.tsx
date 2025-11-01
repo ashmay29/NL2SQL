@@ -8,16 +8,16 @@ export const Dashboard = () => {
   const { data: health, isLoading: healthLoading } = useHealth();
   const { data: schema, isLoading: schemaLoading } = useSchema();
 
-  const getStatusVariant = (status?: string) => {
+  const getStatusVariant = (status?: string): 'success' | 'warning' | 'error' => {
     if (status === 'healthy') return 'success';
     if (status === 'degraded') return 'warning';
     return 'error';
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-semibold text-apple-gray-900 mb-2">Dashboard</h1>
+        <h1 className="text-4xl font-semibold text-apple-gray-900 mb-2">Dashboard</h1>
         <p className="text-apple-gray-500">System overview and health status</p>
       </div>
 

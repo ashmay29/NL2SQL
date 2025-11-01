@@ -18,33 +18,41 @@ export const NLSQLPlayground = () => {
   const handleStepByStep = async () => {
     if (!query.trim()) return;
     
-    // Step 1: NL → IR
-    const irResult = await nl2ir.mutateAsync({
-      query_text: query,
-      database_id: 'nl2sql_target',
-    });
+    try {
+      // Step 1: NL → IR
+      const irResult = await nl2ir.mutateAsync({
+        query_text: query,
+        database_id: 'nl2sql_target',
+      });
 
-    // Step 2: IR → SQL
-    if (irResult.ir) {
-      await ir2sql.mutateAsync({ ir: irResult.ir });
+      // Step 2: IR → SQL
+      if (irResult.ir) {
+        await ir2sql.mutateAsync({ ir: irResult.ir });
+      }
+    } catch (error) {
+      console.error('Step-by-step error:', error);
     }
   };
 
   const handleDirect = async () => {
     if (!query.trim()) return;
     
-    await nl2sql.mutateAsync({
-      query_text: query,
-      database_id: 'nl2sql_target',
-    });
+    try {
+      await nl2sql.mutateAsync({
+        query_text: query,
+        database_id: 'nl2sql_target',
+      });
+    } catch (error) {
+      console.error('Direct error:', error);
+    }
   };
 
   const isLoading = nl2ir.isPending || ir2sql.isPending || nl2sql.isPending;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-semibold text-apple-gray-900 mb-2">NL → SQL Playground</h1>
+        <h1 className="text-4xl font-semibold text-apple-gray-900 mb-2">Playground</h1>
         <p className="text-apple-gray-500">Convert natural language to SQL queries</p>
       </div>
 

@@ -15,11 +15,12 @@ export const Input = ({ label, error, className = '', ...props }: InputProps) =>
       )}
       <input
         className={`
-          w-full px-4 py-2.5 rounded-xl border border-apple-gray-200
+          w-full px-4 py-3 rounded-xl border border-apple-gray-200
           bg-white text-apple-gray-900 placeholder-apple-gray-400
-          focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent
+          focus:outline-none focus:ring-1 focus:ring-apple-gray-900 focus:border-apple-gray-900
           transition-all duration-200
           ${error ? 'border-apple-red focus:ring-apple-red' : ''}
+          disabled:bg-apple-gray-50 disabled:cursor-not-allowed
           ${className}
         `}
         {...props}

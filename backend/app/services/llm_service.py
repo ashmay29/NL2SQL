@@ -3,6 +3,7 @@ LLM service supporting Ollama and Gemini
 """
 import requests
 import json
+import time
 from typing import Dict, Any, Optional
 import logging
 from app.core.config import settings
@@ -91,19 +92,36 @@ class LLMService:
         
         try:
             import google.generativeai as genai
+            from google.api_core import exceptions as gcore_exceptions
             
             genai.configure(api_key=self.gemini_api_key)
             model = genai.GenerativeModel(self.gemini_model)
-            
-            response = model.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens
-                }
-            )
-            
-            return response.text.strip()
+            # Simple retry with exponential backoff for rate limits
+            attempts = int(getattr(settings, 'GEMINI_MAX_RETRIES', 3))
+            backoff_base = float(getattr(settings, 'GEMINI_BACKOFF_BASE_SEC', 1.0))
+            last_err = None
+            for i in range(attempts):
+                try:
+                    response = model.generate_content(
+                        prompt,
+                        generation_config={
+                            "temperature": temperature,
+                            "max_output_tokens": max_tokens
+                        }
+                    )
+                    return response.text.strip()
+                except gcore_exceptions.ResourceExhausted as e:
+                    last_err = e
+                    sleep_sec = backoff_base * (2 ** i)
+                    logger.warning(f"Gemini 429 Resource exhausted, retrying in {sleep_sec:.1f}s (attempt {i+1}/{attempts})")
+                    time.sleep(sleep_sec)
+                except gcore_exceptions.TooManyRequests as e:  # pragma: no cover (alias in some versions)
+                    last_err = e
+                    sleep_sec = backoff_base * (2 ** i)
+                    logger.warning(f"Gemini 429 TooManyRequests, retrying in {sleep_sec:.1f}s (attempt {i+1}/{attempts})")
+                    time.sleep(sleep_sec)
+            # Exhausted retries
+            raise last_err if last_err else RuntimeError("Gemini generation failed without specific error")
             
         except Exception as e:
             logger.error(f"Gemini generation failed: {e}")
@@ -125,12 +143,33 @@ class LLMService:
                 logger.error(f"Ollama chat/json failed, falling back to generate: {e}")
                 # Fall through to text generation + extraction
 
-        response_text = self.generate(
-            prompt,
-            temperature=0.3,  # Lower temperature for structured output
-            provider_override=provider_override
-        )
-        
+        # Generate text with the selected provider (with retries already inside Gemini path)
+        try:
+            response_text = self.generate(
+                prompt,
+                temperature=0.3,  # Lower temperature for structured output
+                provider_override=provider_override
+            )
+        except Exception as e:
+            logger.error(f"Primary provider '{provider}' failed to generate JSON: {e}")
+            # Optional fallback to Ollama if configured and not already using it
+            fallback = getattr(settings, 'LLM_FALLBACK_PROVIDER', None)
+            if provider != "ollama" and fallback == "ollama":
+                logger.info("Falling back to Ollama for JSON generation")
+                try:
+                    json_text = self._ollama_chat_json(prompt)
+                    return json.loads(json_text)
+                except Exception as fe:
+                    logger.error(f"Fallback Ollama chat/json failed: {fe}")
+                    # last resort: try Ollama text and extract
+                    try:
+                        response_text = self._generate_ollama(prompt, temperature=0.1, max_tokens=2048)
+                    except Exception:
+                        raise e  # re-raise original
+            else:
+                # No fallback configured
+                raise
+
         # Extract JSON from response
         try:
             # Try to parse directly
@@ -138,12 +177,12 @@ class LLMService:
         except json.JSONDecodeError:
             # Try to extract JSON from markdown code blocks
             import re
-            json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+            json_match = re.search(r"```json\s*(\{.*?\})\s*```", response_text, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group(1))
             
             # Try to find any JSON object
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group(0))
             
