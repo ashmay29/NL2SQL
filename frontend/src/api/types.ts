@@ -46,6 +46,7 @@ export interface NL2SQLResponse {
   original_question: string;
   resolved_question: string;
   sql: string;
+  params: Record<string, any>;
   ir?: Record<string, any>;
   confidence: number;
   ambiguities: any[];

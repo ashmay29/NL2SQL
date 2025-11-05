@@ -1,0 +1,40 @@
+{
+  "model_type": "GNNRanker",
+  "architecture": "3-layer GAT with Question Injection",
+  "hyperparameters": {
+    "node_feature_dim": 5,
+    "query_embedding_dim": 384,
+    "hidden_channels": 256,
+    "attention_heads": 4,
+    "dropout": [0.3, 0.3, 0.2],
+    "gat_concat": false
+  },
+  "training_info": {
+    "dataset": "Spider dataset format",
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "optimizer": "Adam",
+    "learning_rate": 0.001,
+    "num_epochs": 200,
+    "batch_size": 8,
+    "loss_function": "BCEWithLogitsLoss",
+    "scheduler": "ReduceLROnPlateau",
+    "early_stopping_patience": 10
+  },
+  "input_format": {
+    "schema": "Spider format (table_names_original, column_names_original, etc.)",
+    "query": "Natural language text",
+    "output": "Node relevance scores (0-1, sigmoid applied during inference)"
+  },
+  "usage": {
+    "backend_schema": "Automatically converted to Spider format",
+    "top_k_nodes": 15,
+    "inference_mode": "eval (no gradients, sigmoid applied to logits)"
+  },
+  "architecture_details": {
+    "layer_1": "Input Projection: (node_features + question_emb) → hidden_dim",
+    "layer_2": "GATConv (4 heads, concat=False)",
+    "layer_3": "GATConv (4 heads, concat=False)",
+    "layer_4": "GATConv (4 heads, concat=False)",
+    "output": "Linear → Logits → Sigmoid (inference only)"
+  }
+}

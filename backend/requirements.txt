@@ -18,8 +18,9 @@ python-multipart==0.0.6
 
 # ML/Embeddings
 sentence-transformers==2.3.1
+transformers==4.37.2
 numpy==1.26.3
-faiss-cpu==1.7.4
+faiss-cpu==1.8.0
 
 # Vector DB
 qdrant-client==1.7.3
@@ -35,6 +36,10 @@ networkx==3.2.1
 pandas==2.1.4
 openpyxl==3.1.2  # Excel file support
 pyarrow==14.0.2  # Parquet file support
+
+# PyTorch & GNN (for GNN Ranker model)
+torch==2.2.0
+torch-geometric==2.7.0
 
 # Optional (for Kaggle)
 kaggle==1.6.6

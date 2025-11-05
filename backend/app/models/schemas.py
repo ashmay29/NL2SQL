@@ -72,6 +72,7 @@ class NL2SQLResponse(BaseModel):
     original_question: str
     resolved_question: str
     sql: str
+    params: Dict[str, Any] = {}  # Include SQL parameters for frontend display
     ir: Optional[Dict[str, Any]] = None
     confidence: float
     ambiguities: List[Dict[str, Any]] = []

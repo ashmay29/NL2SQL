@@ -43,12 +43,14 @@ class PipelineContext:
         self.resolved_query: str = query_text
         self.ir: Optional[QueryIR] = None
         self.sql: str = ""
+        self.params: Dict[str, Any] = {}  # SQL parameters for parameterized queries
         self.complexity_metrics: Optional[ComplexityMetrics] = None
         self.errors_found: List[str] = []
         self.corrections_applied: List[str] = []
         self.explanations: List[str] = []
         self.suggested_fixes: List[str] = []
         self.confidence: float = 1.0
+        self.ambiguities: List[Dict[str, Any]] = []
         self.ambiguities: List[Dict[str, Any]] = []
 
 
@@ -77,13 +79,30 @@ class PipelineOrchestrator:
     async def prepare_schema_and_context(self, ctx: PipelineContext) -> None:
         """Step 1: Load schema and prepare context"""
         try:
-            # Get schema
+            # Get schema from cache first
             ctx.schema = self.schema_service.get_cached_schema(ctx.database_id)
-            if not ctx.schema:
-                ctx.schema = self.schema_service.extract_schema(ctx.database_id)
-                self.schema_service.cache_schema(ctx.schema, ttl=settings.SCHEMA_REFRESH_TTL_SEC)
             
-            ctx.schema_fingerprint = ctx.schema.get("version", "default")
+            # If not cached and MySQL is available, extract from database
+            if not ctx.schema and self.schema_service.inspector:
+                try:
+                    ctx.schema = self.schema_service.extract_schema(ctx.database_id)
+                    self.schema_service.cache_schema(ctx.schema, ttl=settings.SCHEMA_REFRESH_TTL_SEC)
+                except Exception as db_error:
+                    logger.warning(f"MySQL schema extraction failed for {ctx.database_id}: {db_error}")
+                    raise RuntimeError(
+                        f"No schema found for database '{ctx.database_id}'. "
+                        "Please upload a CSV/Excel file first using /api/v1/data/upload/csv endpoint, "
+                        "or ensure the MySQL database exists and is accessible."
+                    )
+            elif not ctx.schema:
+                # MySQL not available and no cached schema
+                raise RuntimeError(
+                    f"No schema found for database '{ctx.database_id}'. "
+                    "Please upload a CSV/Excel file first using /api/v1/data/upload/csv endpoint. "
+                    "After upload, use database_id='uploaded_data' in your NL2SQL request."
+                )
+            
+            ctx.schema_fingerprint = ctx.schema.get("version") or ctx.schema.get("fingerprint", "default")
             
             # Resolve references from conversation context
             ctx.resolved_query = self.context_service.resolve_references(
@@ -100,10 +119,49 @@ class PipelineOrchestrator:
     async def generate_ir(self, ctx: PipelineContext) -> Dict[str, Any]:
         """Step 2: Generate IR with RAG and context"""
         try:
-            # Build compact schema text
+            # Get GNN ranker service if available (local GNN model)
+            gnn_top_nodes = None
+            try:
+                from app.core.dependencies import get_gnn_ranker_service
+                from app.core.config import settings
+                
+                if settings.USE_LOCAL_GNN:
+                    gnn_service = get_gnn_ranker_service()
+                    # Score schema nodes using GNN with increased top-k
+                    gnn_top_nodes = await gnn_service.score_schema_nodes(
+                        query=ctx.resolved_query,
+                        backend_schema=ctx.schema,
+                        top_k=50  # Increased to 50 for better coverage
+                    )
+                    logger.info(f"GNN scored {len(gnn_top_nodes)} relevant schema nodes for query")
+                    
+                    # HYBRID APPROACH: Add keyword fallback for critical tables/columns
+                    gnn_top_nodes = self._apply_keyword_fallback(
+                        ctx.resolved_query, 
+                        ctx.schema, 
+                        gnn_top_nodes
+                    )
+                    
+                    # Log detailed GNN scores for visibility
+                    print("\n" + "="*80)
+                    print("🧠 GNN SCHEMA NODE SCORES (with Intelligent Fallback)")
+                    print("="*80)
+                    for i, node in enumerate(gnn_top_nodes, 1):
+                        node_type = "📊 TABLE" if node['node_type'] == 'table' else "📝 COLUMN"
+                        auto_added = "🤖" if node.get('auto_added', False) else "  "
+                        reason = f" | {node.get('reason', '')}" if node.get('auto_added', False) else ""
+                        print(f"#{i:2d} {auto_added} [{node_type}] {node['node_name']:30s} | Score: {node['score']:.10f}{reason}")
+                    print("="*80 + "\n")
+                    
+            except Exception as e:
+                logger.warning(f"GNN schema pruning failed, using full schema: {e}")
+                gnn_top_nodes = None
+            
+            # Build compact schema text (pruned by GNN if available)
             schema_text = build_compact_schema_text(
                 ctx.schema, 
-                max_columns_per_table=settings.MAX_COLUMNS_IN_PROMPT
+                max_columns_per_table=settings.MAX_COLUMNS_IN_PROMPT,
+                gnn_top_nodes=gnn_top_nodes  # NEW: Pass GNN results for pruning
             )
             
             # Get RAG examples
@@ -123,10 +181,19 @@ class PipelineOrchestrator:
             
             # Build and execute prompt
             prompt = build_ir_prompt(schema_text, ctx.resolved_query, rag_examples, context)
+            
+            # Log the final IR prompt for visibility
+            print("\n" + "="*80)
+            print("📋 FINAL IR PROMPT SENT TO LLM")
+            print("="*80)
+            print(prompt)
+            print("="*80 + "\n")
+            
+            logger.debug(f"IR Prompt: {prompt[:500]}")  # Log first 500 chars
             ir_json = self.llm_service.generate_json(prompt)
 
             # Log raw IR for debugging
-            logger.debug(f"Raw IR from LLM: {json.dumps(ir_json, indent=2)[:500]}")
+            logger.info(f"📋 Raw IR from LLM: {json.dumps(ir_json, indent=2)}")
 
             # Sanitize/normalize IR JSON from provider to match our schema
             self._sanitize_ir_json(ir_json)
@@ -256,6 +323,29 @@ class PipelineOrchestrator:
                             # Default to ASC if missing/invalid
                             item["direction"] = "ASC"
             
+            # Normalize WHERE clause - handle OR/AND compound conditions
+            where = ir_json.get("where")
+            if where:
+                # If WHERE is a single dict with type='or' or type='and', expand it
+                if isinstance(where, dict) and where.get("type") in ("or", "and"):
+                    # Convert compound condition to list of predicates with proper conjunction
+                    conjunction = where.get("type").upper()  # 'OR' or 'AND'
+                    args = where.get("args", [])
+                    
+                    # Convert args to proper predicate format
+                    predicates = []
+                    for arg in args:
+                        if isinstance(arg, dict) and "left" in arg and "operator" in arg:
+                            # Already a predicate
+                            if "conjunction" not in arg and len(predicates) > 0:
+                                arg["conjunction"] = conjunction
+                            predicates.append(arg)
+                    
+                    ir_json["where"] = predicates
+                elif not isinstance(where, list):
+                    # Single predicate, wrap in list
+                    ir_json["where"] = [where]
+            
             # Normalize CTEs
             ctes = ir_json.get("ctes")
             if isinstance(ctes, list):
@@ -379,7 +469,17 @@ class PipelineOrchestrator:
         """Step 4: Compile IR to SQL and analyze"""
         try:
             # Compile IR to SQL
-            ctx.sql, params = IRToMySQLCompiler().compile(ctx.ir)
+            ctx.sql, ctx.params = IRToMySQLCompiler().compile(ctx.ir)
+            
+            # Log parameters for visibility
+            if ctx.params:
+                print("\n" + "="*80)
+                print("📋 SQL PARAMETERS")
+                print("="*80)
+                for key, value in ctx.params.items():
+                    value_display = f'"{value}"' if isinstance(value, str) else str(value)
+                    print(f"  {key}: {value_display}")
+                print("="*80 + "\n")
             
             # Analyze complexity
             ctx.complexity_metrics = self.complexity_service.analyze(ctx.ir, ctx.schema)
@@ -408,7 +508,7 @@ class PipelineOrchestrator:
             if optimization_suggestions:
                 ctx.suggested_fixes.extend(optimization_suggestions)
             
-            logger.debug(f"SQL compiled, complexity: {ctx.complexity_metrics.level}")
+            logger.debug(f"SQL compiled with {len(ctx.params)} parameters, complexity: {ctx.complexity_metrics.level}")
             
         except Exception as e:
             logger.error(f"Failed to compile/analyze SQL: {e}")
@@ -437,6 +537,279 @@ class PipelineOrchestrator:
         except Exception as e:
             logger.error(f"Failed to save context: {e}")
             # Non-critical error, don't raise
+    
+    def _apply_keyword_fallback(
+        self, 
+        query: str, 
+        schema: Dict[str, Any], 
+        gnn_nodes: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        INTELLIGENT SCHEMA-AWARE FALLBACK: Automatically detects missing critical nodes
+        based on schema structure, column types, and query patterns WITHOUT manual keywords.
+        
+        Strategy:
+        1. Detect tables already included by GNN
+        2. Find related tables via foreign keys that are missing
+        3. For aggregation queries, ensure critical calculation columns (dates, numbers)
+        4. For grouping queries ("per X"), ensure JOIN columns and dimensions
+        
+        Args:
+            query: User's natural language query
+            schema: Full database schema
+            gnn_nodes: GNN-ranked nodes
+        
+        Returns:
+            Enhanced node list with intelligently added critical nodes
+        """
+        query_lower = query.lower()
+        tables_dict = schema.get('tables', {})
+        
+        # Get currently included tables and columns
+        included_tables = set()
+        included_columns = {}  # {table: [columns]}
+        existing_node_ids = {node.get('node_id') for node in gnn_nodes}
+        
+        for node in gnn_nodes:
+            node_id = node.get('node_id', '')
+            if node_id.startswith('table:'):
+                table = node_id.replace('table:', '')
+                included_tables.add(table)
+            elif node_id.startswith('column:'):
+                parts = node_id.replace('column:', '').split('.')
+                if len(parts) == 2:
+                    table, col = parts
+                    included_tables.add(table)
+                    if table not in included_columns:
+                        included_columns[table] = []
+                    included_columns[table].append(col)
+        
+        additional_nodes = []
+        
+        # STRATEGY 1: Add related tables via foreign key relationships
+        additional_nodes.extend(self._add_related_tables_via_fk(
+            included_tables, schema, existing_node_ids, tables_dict
+        ))
+        
+        # STRATEGY 2: For aggregation/calculation queries, ensure measurement columns
+        if any(word in query_lower for word in ['average', 'avg', 'mean', 'sum', 'total', 'count', 'duration', 'length', 'period', 'stay']):
+            additional_nodes.extend(self._add_calculation_columns(
+                included_tables, included_columns, schema, existing_node_ids, tables_dict, query_lower
+            ))
+        
+        # STRATEGY 3: For grouping queries, ensure grouping dimension columns and JOIN keys
+        if any(word in query_lower for word in ['per', 'by', 'each', 'group']):
+            additional_nodes.extend(self._add_grouping_dimensions(
+                included_tables, included_columns, schema, existing_node_ids, tables_dict, query_lower
+            ))
+        
+        # Combine and sort
+        if additional_nodes:
+            combined_nodes = gnn_nodes + additional_nodes
+            combined_nodes.sort(key=lambda x: x.get('score', 0), reverse=True)
+            logger.info(f"🧠 Intelligent fallback added {len(additional_nodes)} critical nodes")
+            return combined_nodes
+        
+        return gnn_nodes
+    
+    def _add_related_tables_via_fk(
+        self, 
+        included_tables: set, 
+        schema: Dict[str, Any], 
+        existing_node_ids: set,
+        tables_dict: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Add tables related via foreign key relationships"""
+        additional = []
+        relationships = schema.get('relationships', [])
+        
+        for rel in relationships:
+            from_table = rel.get('from_table')
+            to_table = rel.get('to_table')
+            
+            # If one table is included but not the other, add the missing one
+            if from_table in included_tables and to_table not in included_tables:
+                node_id = f"table:{to_table}"
+                if node_id not in existing_node_ids and to_table in tables_dict:
+                    additional.append({
+                        'node_id': node_id,
+                        'node_name': to_table,
+                        'node_type': 'table',
+                        'score': 0.82,
+                        'auto_added': True,
+                        'reason': f'FK relationship with {from_table}'
+                    })
+                    logger.info(f"🔗 Auto-added related table: {to_table} (FK from {from_table})")
+            
+            elif to_table in included_tables and from_table not in included_tables:
+                node_id = f"table:{from_table}"
+                if node_id not in existing_node_ids and from_table in tables_dict:
+                    additional.append({
+                        'node_id': node_id,
+                        'node_name': from_table,
+                        'node_type': 'table',
+                        'score': 0.82,
+                        'auto_added': True,
+                        'reason': f'FK relationship with {to_table}'
+                    })
+                    logger.info(f"🔗 Auto-added related table: {from_table} (FK to {to_table})")
+        
+        return additional
+    
+    def _add_calculation_columns(
+        self,
+        included_tables: set,
+        included_columns: Dict[str, List[str]],
+        schema: Dict[str, Any],
+        existing_node_ids: set,
+        tables_dict: Dict[str, Any],
+        query_lower: str
+    ) -> List[Dict[str, Any]]:
+        """Add critical columns for calculations (dates for duration, numbers for aggregation)"""
+        additional = []
+        
+        # For each included table, find calculation-critical columns
+        for table in included_tables:
+            if table not in tables_dict:
+                continue
+            
+            table_info = tables_dict[table]
+            columns = table_info.get('columns', [])
+            current_cols = set(included_columns.get(table, []))
+            
+            for col in columns:
+                col_name = col.get('name', '')
+                col_type = col.get('type', '').upper()
+                
+                # Skip if already included
+                if col_name in current_cols:
+                    continue
+                
+                should_add = False
+                reason = ""
+                
+                # DATE/TIMESTAMP columns for duration calculations
+                if 'DATE' in col_type or 'TIME' in col_type:
+                    if any(word in query_lower for word in ['duration', 'length', 'period', 'stay', 'time']):
+                        should_add = True
+                        reason = "Date/time column for duration calculation"
+                
+                # NUMERIC columns for aggregations
+                elif any(numeric in col_type for numeric in ['INT', 'DECIMAL', 'FLOAT', 'DOUBLE', 'NUMERIC']):
+                    if any(word in query_lower for word in ['average', 'avg', 'sum', 'total', 'count', 'mean']):
+                        should_add = True
+                        reason = "Numeric column for aggregation"
+                
+                if should_add:
+                    node_id = f"column:{table}.{col_name}"
+                    if node_id not in existing_node_ids:
+                        additional.append({
+                            'node_id': node_id,
+                            'node_name': f"{table}.{col_name}",
+                            'node_type': 'column',
+                            'col_type': col.get('type', 'TEXT'),
+                            'score': 0.85,
+                            'auto_added': True,
+                            'reason': reason
+                        })
+                        logger.info(f"📊 Auto-added calculation column: {table}.{col_name} ({reason})")
+        
+        return additional
+    
+    def _add_grouping_dimensions(
+        self,
+        included_tables: set,
+        included_columns: Dict[str, List[str]],
+        schema: Dict[str, Any],
+        existing_node_ids: set,
+        tables_dict: Dict[str, Any],
+        query_lower: str
+    ) -> List[Dict[str, Any]]:
+        """Add dimension columns for GROUP BY operations and ensure JOIN keys"""
+        additional = []
+        
+        # Common dimension patterns: name, type, category, status, etc.
+        dimension_patterns = ['name', 'type', 'category', 'status', 'level', 'grade', 'class', 'department']
+        
+        # First, ensure we have grouping dimension columns in included tables
+        for table in included_tables:
+            if table not in tables_dict:
+                continue
+            
+            table_info = tables_dict[table]
+            columns = table_info.get('columns', [])
+            current_cols = set(included_columns.get(table, []))
+            
+            for col in columns:
+                col_name = col.get('name', '').lower()
+                col_type = col.get('type', '').upper()
+                
+                # Skip if already included
+                if col.get('name', '') in current_cols:
+                    continue
+                
+                # Check if this looks like a dimension column
+                is_dimension = (
+                    any(pattern in col_name for pattern in dimension_patterns) or
+                    ('VARCHAR' in col_type or 'CHAR' in col_type or 'TEXT' in col_type)
+                )
+                
+                if is_dimension:
+                    node_id = f"column:{table}.{col.get('name')}"
+                    if node_id not in existing_node_ids:
+                        additional.append({
+                            'node_id': node_id,
+                            'node_name': f"{table}.{col.get('name')}",
+                            'node_type': 'column',
+                            'col_type': col.get('type', 'TEXT'),
+                            'score': 0.80,
+                            'auto_added': True,
+                            'reason': 'Potential grouping dimension'
+                        })
+                        logger.info(f"📁 Auto-added grouping column: {table}.{col.get('name')}")
+        
+        # Second, ensure JOIN keys (foreign keys) for multi-table queries
+        # Look for relationships between included tables
+        relationships = schema.get('relationships', [])
+        for rel in relationships:
+            from_table = rel.get('from_table')
+            to_table = rel.get('to_table')
+            from_col = rel.get('from_column')
+            to_col = rel.get('to_column')
+            
+            # If both tables are included, ensure the FK columns are too
+            if from_table in included_tables and to_table in included_tables:
+                # Add from column
+                if from_col and from_col not in included_columns.get(from_table, []):
+                    node_id = f"column:{from_table}.{from_col}"
+                    if node_id not in existing_node_ids:
+                        additional.append({
+                            'node_id': node_id,
+                            'node_name': f"{from_table}.{from_col}",
+                            'node_type': 'column',
+                            'col_type': 'INT',  # FKs are usually INT
+                            'score': 0.88,
+                            'auto_added': True,
+                            'reason': f'JOIN key to {to_table}'
+                        })
+                        logger.info(f"🔑 Auto-added JOIN key: {from_table}.{from_col}")
+                
+                # Add to column
+                if to_col and to_col not in included_columns.get(to_table, []):
+                    node_id = f"column:{to_table}.{to_col}"
+                    if node_id not in existing_node_ids:
+                        additional.append({
+                            'node_id': node_id,
+                            'node_name': f"{to_table}.{to_col}",
+                            'node_type': 'column',
+                            'col_type': 'INT',
+                            'score': 0.88,
+                            'auto_added': True,
+                            'reason': f'JOIN key from {from_table}'
+                        })
+                        logger.info(f"🔑 Auto-added JOIN key: {to_table}.{to_col}")
+        
+        return additional
     
     async def execute_pipeline(self, ctx: PipelineContext) -> Tuple[PipelineContext, Optional[List[str]]]:
         """

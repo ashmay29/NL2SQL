@@ -57,13 +57,34 @@ async def nl2ir(
         
         schema_fingerprint = schema.get("version", "default")
         
-        # Use compact schema to avoid model context overflows/timeouts
-        schema_text = build_compact_schema_text(schema, max_columns_per_table=settings.MAX_COLUMNS_IN_PROMPT)
-
         # Phase 4: Resolve references from conversation context
         conversation_id = req.conversation_id or "default"
         resolved_query = context_service.resolve_references(req.query_text, conversation_id)
         
+        # NEW: Use GNN to prune schema (like your training code)
+        gnn_top_nodes = None
+        try:
+            from app.core.dependencies import get_gnn_ranker_service
+            
+            if settings.USE_LOCAL_GNN:
+                gnn_service = get_gnn_ranker_service()
+                gnn_top_nodes = await gnn_service.score_schema_nodes(
+                    query=resolved_query,
+                    backend_schema=schema,
+                    top_k=15  # Top 15 relevant nodes
+                )
+                logger.info(f"GNN scored {len(gnn_top_nodes)} relevant schema nodes")
+        except Exception as e:
+            logger.warning(f"GNN schema pruning failed, using full schema: {e}")
+            gnn_top_nodes = None
+        
+        # Use compact schema to avoid model context overflows/timeouts
+        schema_text = build_compact_schema_text(
+            schema, 
+            max_columns_per_table=settings.MAX_COLUMNS_IN_PROMPT,
+            gnn_top_nodes=gnn_top_nodes  # NEW: GNN-pruned schema
+        )
+
         # Phase 3: Get RAG examples from feedback
         rag_examples = ""
         if use_rag:
@@ -135,9 +156,12 @@ async def nl2sql(
     Full NL2SQL pipeline with Phase 3 & 4 enhancements:
     - Phase 3: RAG feedback integration
     - Phase 4: Context, complexity analysis, correction, clarification
+    
+    For CSV/Excel uploads, use database_id='uploaded_data'
+    For MySQL databases, use database_id='your_database_name'
     """
     conversation_id = req.conversation_id or "default"
-    database_id = req.database_id or "nl2sql_target"
+    database_id = req.database_id or "uploaded_data"  # Changed default from nl2sql_target
     
     try:
         # Create pipeline context
@@ -181,13 +205,15 @@ async def nl2sql(
             database_id=database_id,
             confidence=ctx.confidence,
             complexity=ctx.complexity_metrics.level if ctx.complexity_metrics else "unknown",
-            execution_time=execution_time
+            execution_time=execution_time,
+            params_count=len(ctx.params)
         )
         
         return NL2SQLResponse(
             original_question=req.query_text,
             resolved_question=ctx.resolved_query,
             sql=ctx.sql,
+            params=ctx.params,  # Use params from context
             ir=ctx.ir.dict() if ctx.ir else {},
             confidence=ctx.confidence,
             ambiguities=ctx.ambiguities,

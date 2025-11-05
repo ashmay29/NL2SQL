@@ -34,7 +34,7 @@ class LLMService:
         self,
         prompt: str,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: int = 10000,
         provider_override: Optional[str] = None
     ) -> str:
         """Generate text from LLM"""
@@ -95,7 +95,9 @@ class LLMService:
             from google.api_core import exceptions as gcore_exceptions
             
             genai.configure(api_key=self.gemini_api_key)
-            model = genai.GenerativeModel(self.gemini_model)
+            model = genai.GenerativeModel(
+                self.gemini_model
+            )
             # Simple retry with exponential backoff for rate limits
             attempts = int(getattr(settings, 'GEMINI_MAX_RETRIES', 3))
             backoff_base = float(getattr(settings, 'GEMINI_BACKOFF_BASE_SEC', 1.0))
@@ -106,10 +108,63 @@ class LLMService:
                         prompt,
                         generation_config={
                             "temperature": temperature,
-                            "max_output_tokens": max_tokens
+                            "max_output_tokens": max_tokens,
+                            "candidate_count": 1,  # Only generate one candidate
+                            "stop_sequences": None   # Don't stop early
                         }
                     )
-                    return response.text.strip()
+                    
+                    # Handle multi-part responses - use the EXACT path Gemini tells us
+                    try:
+                        # Try simple accessor first
+                        return response.text.strip()
+                    except (ValueError, AttributeError) as ve:
+                        # Multi-part response - use candidates[index].content.parts as error message says
+                        logger.warning(f"⚠️  Multi-part response detected, extracting parts...")
+                        
+                        # First check if response was blocked or incomplete
+                        if response.candidates and len(response.candidates) > 0:
+                            candidate = response.candidates[0]
+                            
+                            # Log finish reason to understand why response is multi-part
+                            finish_reason = getattr(candidate, 'finish_reason', None)
+                            logger.info(f"Finish reason: {finish_reason}")
+                            
+                            # Check safety ratings
+                            if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
+                                logger.info(f"Safety ratings: {candidate.safety_ratings}")
+                            
+                            # Check if blocked
+                            if hasattr(response, 'prompt_feedback'):
+                                logger.info(f"Prompt feedback: {response.prompt_feedback}")
+                        
+                        try:
+                            # Use EXACTLY what the error message says: result.candidates[index].content.parts
+                            parts = response.candidates[0].content.parts
+                            logger.info(f"Found {len(parts)} parts")
+                            
+                            # Debug: log what's in each part
+                            for i, part in enumerate(parts):
+                                logger.info(f"Part {i}: type={type(part)}, has_text={hasattr(part, 'text')}, text_len={len(part.text) if hasattr(part, 'text') and part.text else 0}")
+                            
+                            text_parts = [part.text for part in parts if hasattr(part, 'text') and part.text]
+                            
+                            if text_parts:
+                                combined = ''.join(text_parts).strip()
+                                logger.info(f"✅ Extracted {len(text_parts)} parts → {len(combined)} chars")
+                                return combined
+                            else:
+                                logger.error(f"❌ No text in {len(parts)} parts")
+                                # Log what's actually in the parts
+                                for i, part in enumerate(parts):
+                                    logger.error(f"Part {i} attributes: {dir(part)[:10]}")
+                                raise RuntimeError(f"Parts exist but contain no extractable text. Finish reason: {finish_reason if 'finish_reason' in locals() else 'unknown'}")
+                                
+                        except (AttributeError, IndexError, TypeError) as e:
+                            logger.error(f"❌ Cannot access parts: {e}")
+                            logger.error(f"Response: {type(response)}, Has candidates: {hasattr(response, 'candidates')}")
+                            raise RuntimeError(f"Failed to extract multi-part response: {e}")
+                        
                 except gcore_exceptions.ResourceExhausted as e:
                     last_err = e
                     sleep_sec = backoff_base * (2 ** i)
