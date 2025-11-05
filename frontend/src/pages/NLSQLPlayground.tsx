@@ -585,9 +585,9 @@ export const NLSQLPlayground = () => {
                 Confidence: {(nl2sql.data.confidence * 100).toFixed(0)}%
               </Badge>
             </div>
-          </div> */}
+          </div>
 
-          {/* {nl2sql.data.explanations.length > 0 && (
+          {nl2sql.data.explanations.length > 0 && (
             <div className="mb-4 p-3 bg-apple-orange/10 border border-apple-orange/20 rounded-xl">
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 text-apple-orange flex-shrink-0 mt-0.5" />

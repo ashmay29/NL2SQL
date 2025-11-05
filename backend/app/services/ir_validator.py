@@ -15,11 +15,11 @@ class IRValidator:
         errors: List[str] = []
 
         # Collect available tables from joins and CTEs
-        available_tables = [ir.from_table] + [j.table for j in ir.joins] + [cte.name for cte in ir.ctes]
+        available_tables = ([ir.from_table] if ir.from_table else []) + [j.table for j in ir.joins] + [cte.name for cte in ir.ctes]
         cte_names = {cte.name for cte in ir.ctes}
 
-        # Validate FROM table (skip if it's a CTE)
-        if ir.from_table not in cte_names and ir.from_table not in self.schema.get("tables", {}):
+        # Validate FROM table (skip if it's a CTE or if from_table is None)
+        if ir.from_table and ir.from_table not in cte_names and ir.from_table not in self.schema.get("tables", {}):
             errors.append(f"Table '{ir.from_table}' does not exist")
 
         # Validate SELECT

@@ -33,8 +33,9 @@ class IRToMySQLCompiler:
         sql_parts.append(select_clause)
 
         # FROM
-        from_clause = f"FROM `{ir.from_table}`" + (f" AS {ir.from_alias}" if ir.from_alias else "")
-        sql_parts.append(from_clause)
+        if ir.from_table:
+            from_clause = f"FROM `{ir.from_table}`" + (f" AS {ir.from_alias}" if ir.from_alias else "")
+            sql_parts.append(from_clause)
 
         # JOINs
         for j in ir.joins or []:
@@ -100,7 +101,11 @@ class IRToMySQLCompiler:
             for when in when_clauses:
                 if when.condition:
                     cond_sql = self._compile_predicates([when.condition], params)
-                    result_sql = self._compile_expression(when.result, params, inline_literals=True)
+                    # Handle NULL in THEN clause
+                    if when.result is None:
+                        result_sql = "NULL"
+                    else:
+                        result_sql = self._compile_expression(when.result, params, inline_literals=True)
                     case_parts.append(f"WHEN {cond_sql} THEN {result_sql}")
             
             # Compile ELSE clause if present

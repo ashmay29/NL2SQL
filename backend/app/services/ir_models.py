@@ -58,7 +58,7 @@ class WindowFunction(BaseModel):
 class CaseWhen(BaseModel):
     """CASE WHEN condition for conditional expressions"""
     condition: Optional["Predicate"] = Field(None, alias="when")  # Alias 'when' to 'condition'
-    result: "Expression" = Field(..., alias="then")  # Alias 'then' to 'result'
+    result: Optional["Expression"] = Field(None, alias="then")  # Alias 'then' to 'result', allow None for NULL
     
     class Config:
         populate_by_name = True  # Allow both 'when'/'then' and 'condition'/'result'
@@ -130,7 +130,7 @@ class QueryIR(BaseModel):
     distinct: bool = False
 
     # FROM
-    from_table: str
+    from_table: Optional[str] = None  # Optional to support queries without FROM (e.g., SELECT 1)
     from_alias: Optional[str] = None
 
     # JOINs
