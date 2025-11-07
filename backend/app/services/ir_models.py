@@ -1,7 +1,7 @@
 """
 Intermediate Representation (IR) Pydantic models
 """
-from _future_ import annotations
+from __future__ import annotations
 from typing import List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field, validator
 from enum import Enum
