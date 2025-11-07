@@ -1,9 +1,9 @@
 """
 Enhanced Embedding Service
 Integrates Sentence Transformer + GNN embeddings with intelligent fallback
-Supports both schema node embeddings and query embeddings
+Supports both local GNN Ranker and external GNN service
 """
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 import logging
 import json
 import redis
@@ -16,28 +16,29 @@ class EnhancedEmbeddingService:
     """
     Enhanced embedding service that orchestrates:
     1. Sentence Transformer for text embeddings (fallback)
-    2. GNN model for graph-aware schema embeddings (primary)
-    3. Redis caching for performance
+    2. Local GNN Ranker model for graph-aware schema embeddings (primary)
+    3. External GNN service (legacy support)
+    4. Redis caching for performance
     
     Flow:
     - Query comes in → Check cache
-    - If miss → Generate with GNN (if available) or SentenceTransformer
+    - If miss → Generate with GNN (local or external) or SentenceTransformer
     - Cache result → Return
     """
     
     def __init__(
         self,
         redis_client: redis.Redis,
-        gnn_service: Optional[GNNInferenceService] = None,
+        gnn_service: Optional[Union[GNNInferenceService, Any]] = None,
         use_sentence_transformer: bool = True,
-        embedding_dim: int = 512
+        embedding_dim: int = 384
     ):
         """
         Initialize enhanced embedding service
         
         Args:
             redis_client: Redis client for caching
-            gnn_service: GNN inference service (optional)
+            gnn_service: GNN service (GNNRankerService or GNNInferenceService)
             use_sentence_transformer: Enable sentence transformer fallback
             embedding_dim: Embedding dimension (512 for GNN, 384 for SentenceTransformer)
         """
@@ -45,6 +46,14 @@ class EnhancedEmbeddingService:
         self.gnn_service = gnn_service
         self.use_sentence_transformer = use_sentence_transformer
         self.embedding_dim = embedding_dim
+        
+        # Detect GNN service type
+        self.is_local_gnn = False
+        if gnn_service:
+            # Check if it's the local GNNRankerService
+            service_class_name = gnn_service.__class__.__name__
+            self.is_local_gnn = service_class_name == 'GNNRankerService'
+            logger.info(f"Using {'local' if self.is_local_gnn else 'external'} GNN service")
         
         # Initialize sentence transformer if enabled
         self.sentence_model = None
@@ -57,6 +66,65 @@ class EnhancedEmbeddingService:
                 logger.warning("sentence-transformers not available, GNN-only mode")
         
         logger.info(f"EnhancedEmbeddingService initialized (dim={embedding_dim})")
+    
+    async def get_relevant_schema_context(
+        self,
+        query_text: str,
+        schema: Dict[str, Any],
+        top_k: int = 15
+    ) -> List[Dict[str, Any]]:
+        """
+        Find most relevant schema nodes for a query
+        Uses local GNN Ranker if available, falls back to external GNN or SentenceTransformer
+        
+        Args:
+            query_text: Natural language query
+            schema: Full schema
+            top_k: Number of top nodes to return
+            
+        Returns:
+            List of relevant nodes with metadata
+        """
+        try:
+            # Try local GNN Ranker first
+            if self.is_local_gnn and self.gnn_service:
+                try:
+                    logger.debug("Using local GNN Ranker for schema context")
+                    nodes = await self.gnn_service.score_schema_nodes(
+                        query=query_text,
+                        backend_schema=schema,
+                        top_k=top_k
+                    )
+                    return nodes
+                except Exception as e:
+                    logger.warning(f"Local GNN Ranker failed: {e}, trying fallback")
+            
+            # Fall back to external GNN service or SentenceTransformer
+            # (Keep existing implementation)
+            # Generate query embedding
+            query_emb = await self.embed_query(query_text, schema)
+            
+            # Generate schema embeddings
+            schema_embs = await self.embed_schema(schema)
+            
+            # Get relevant nodes via external GNN or cosine similarity
+            if self.gnn_service and not self.is_local_gnn:
+                try:
+                    nodes = await self.gnn_service.get_relevant_schema_nodes(
+                        query_emb,
+                        schema_embs,
+                        top_k
+                    )
+                    return nodes
+                except Exception as e:
+                    logger.warning(f"External GNN similarity search failed: {e}, using fallback")
+            
+            # Fallback: simple cosine similarity
+            return self._cosine_similarity_search(query_emb, schema_embs, top_k)
+            
+        except Exception as e:
+            logger.error(f"Failed to get relevant schema context: {e}")
+            return []
     
     async def embed_query(
         self,

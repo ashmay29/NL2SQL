@@ -2,7 +2,9 @@
 FastAPI dependencies for dependency injection
 """
 import redis
+import logging
 from functools import lru_cache
+from typing import Any, Optional
 from app.core.config import settings
 from app.services.schema_service import SchemaService
 from app.services.cache_service import CacheService
@@ -19,13 +21,83 @@ from app.services.pipeline_orchestrator import PipelineOrchestrator
 from app.services.data_ingestion_service import DataIngestionService
 from app.services.gnn_inference_service import GNNInferenceService
 from app.services.enhanced_embedding_service import EnhancedEmbeddingService
+from app.services.gnn_ranker_service import GNNRankerService
+
+
+class MockRedis:
+    """Mock Redis client with in-memory storage for when Redis is unavailable"""
+    def __init__(self):
+        self._storage = {}  # In-memory key-value store
+        self._ttl = {}      # Track expiration times
+    
+    def get(self, key: str) -> Optional[str]:
+        """Get value from in-memory storage"""
+        import time
+        # Check if key expired
+        if key in self._ttl and time.time() > self._ttl[key]:
+            del self._storage[key]
+            del self._ttl[key]
+            return None
+        return self._storage.get(key)
+    
+    def set(self, key: str, value: Any, ex: Optional[int] = None) -> bool:
+        """Set value in in-memory storage"""
+        self._storage[key] = value
+        if ex:
+            import time
+            self._ttl[key] = time.time() + ex
+        return True
+    
+    def setex(self, key: str, time: int, value: Any) -> bool:
+        """Set value with expiration in in-memory storage"""
+        import time as t
+        self._storage[key] = value
+        self._ttl[key] = t.time() + time
+        return True
+    
+    def delete(self, *keys: str) -> int:
+        """Delete keys from in-memory storage"""
+        count = 0
+        for key in keys:
+            if key in self._storage:
+                del self._storage[key]
+                if key in self._ttl:
+                    del self._ttl[key]
+                count += 1
+        return count
+    
+    def ping(self) -> bool:
+        """Always return True for mock"""
+        return True
+    
+    def exists(self, key: str) -> int:
+        """Check if key exists in in-memory storage"""
+        import time
+        if key in self._ttl and time.time() > self._ttl[key]:
+            del self._storage[key]
+            del self._ttl[key]
+            return 0
+        return 1 if key in self._storage else 0
 
 
 # Redis client (singleton)
 @lru_cache()
 def get_redis_client() -> redis.Redis:
-    """Get Redis client"""
-    return redis.from_url(settings.REDIS_URI, decode_responses=True)
+    """Get Redis client with graceful fallback"""
+    try:
+        client = redis.from_url(settings.REDIS_URI, decode_responses=True)
+        # Test connection
+        client.ping()
+        logger = logging.getLogger(__name__)
+        logger.info(f"✅ Redis connection established: {settings.REDIS_URI}")
+        return client
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"⚠️  Redis connection failed: {e}")
+        logger.warning("Caching will be disabled. Install Redis or update REDIS_URI in .env")
+        # Return a mock Redis client that does nothing
+        return MockRedis()
 
 
 # Schema service (singleton)
@@ -83,11 +155,40 @@ def get_gnn_inference_service() -> GNNInferenceService:
     )
 
 
+# GNN Ranker service (singleton) - Local GNN model
+@lru_cache()
+def get_gnn_ranker_service() -> GNNRankerService:
+    """Get local GNN Ranker service"""
+    if not settings.USE_LOCAL_GNN:
+        return None
+    
+    try:
+        return GNNRankerService(
+            model_path=settings.GNN_MODEL_PATH,
+            device=settings.GNN_DEVICE,
+            node_feature_dim=settings.GNN_NODE_FEATURE_DIM,
+            node_embedding_dim=384,  # SentenceTransformer dimension
+            question_embedding_dim=768,  # BERT dimension
+            hidden_channels=settings.GNN_HIDDEN_CHANNELS,
+            use_rich_node_embeddings=True
+        )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to initialize GNN Ranker: {e}")
+        return None
+
+
 # Enhanced Embedding service (singleton)
 @lru_cache()
 def get_enhanced_embedding_service() -> EnhancedEmbeddingService:
     """Get enhanced embedding service with GNN + SentenceTransformer"""
-    gnn_service = get_gnn_inference_service() if settings.GNN_ENDPOINT else None
+    # Use local GNN if enabled, otherwise external GNN service
+    if settings.USE_LOCAL_GNN:
+        gnn_service = get_gnn_ranker_service()
+    else:
+        gnn_service = get_gnn_inference_service() if settings.GNN_ENDPOINT else None
+    
     return EnhancedEmbeddingService(
         redis_client=get_redis_client(),
         gnn_service=gnn_service,

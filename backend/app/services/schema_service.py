@@ -18,12 +18,28 @@ class SchemaService:
     
     def __init__(self, mysql_uri: str, redis_client: redis.Redis):
         self.mysql_uri = mysql_uri
-        self.engine = create_engine(mysql_uri)
         self.redis = redis_client
-        self.inspector = inspect(self.engine)
+        self.engine = None
+        self.inspector = None
+        
+        # Try to create engine and inspector, but don't fail if unavailable
+        try:
+            self.engine = create_engine(mysql_uri)
+            self.inspector = inspect(self.engine)
+            logger.info(f"✅ MySQL connection established: {mysql_uri.split('@')[-1]}")
+        except Exception as e:
+            logger.warning(f"⚠️  MySQL connection failed: {e}")
+            logger.warning("Schema extraction will not be available until database is configured")
+            logger.info("The API will start but /schema endpoints will return errors")
     
     def extract_schema(self, database: str) -> Dict[str, Any]:
         """Extract complete schema from MySQL INFORMATION_SCHEMA"""
+        if not self.inspector:
+            raise RuntimeError(
+                "MySQL connection not available. Please configure MYSQL_URI in .env "
+                "with a valid database connection string."
+            )
+        
         schema = {
             'database': database,
             'tables': {},
@@ -118,19 +134,32 @@ class SchemaService:
         try:
             cached = self.redis.get(cache_key)
             if cached:
+                logger.info(f"✅ Cache hit for '{cache_key}'")
                 return json.loads(cached)
+            else:
+                logger.info(f"⚠️  Cache miss for '{cache_key}'")
         except Exception as e:
-            logger.warning(f"Cache retrieval failed: {e}")
+            logger.warning(f"❌ Cache retrieval failed for '{cache_key}': {e}")
         return None
     
-    def cache_schema(self, schema: Dict, ttl: int = 3600):
+    def cache_schema(self, schema: Dict, ttl: int = 3600, database_id: Optional[str] = None):
         """Cache schema in Redis with TTL"""
-        cache_key = f"schema:{schema['database']}"
+        # Use provided database_id or fall back to schema['database']
+        db_key = database_id if database_id else schema['database']
+        cache_key = f"schema:{db_key}"
         try:
-            self.redis.setex(cache_key, ttl, json.dumps(schema))
-            logger.info(f"Cached schema for {schema['database']} with TTL={ttl}s")
+            schema_json = json.dumps(schema)
+            self.redis.setex(cache_key, ttl, schema_json)
+            logger.info(f"✅ Cached schema for '{db_key}' with key '{cache_key}' (TTL={ttl}s, size={len(schema_json)} bytes)")
+            
+            # Verify it was cached
+            cached = self.redis.get(cache_key)
+            if cached:
+                logger.info(f"✅ Verified cache write for '{cache_key}'")
+            else:
+                logger.error(f"❌ Cache verification failed for '{cache_key}'")
         except Exception as e:
-            logger.warning(f"Cache storage failed: {e}")
+            logger.warning(f"⚠️  Cache storage failed for '{cache_key}': {e}")
     
     def detect_schema_changes(self, old_schema: Dict, new_schema: Dict) -> Dict:
         """Compute diff between two schema versions"""

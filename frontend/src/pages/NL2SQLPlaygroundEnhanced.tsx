@@ -165,8 +165,9 @@ const PlaygroundContent: React.FC = () => {
             onClearHistory={clearHistory}
             onSelectTurn={(turn) => {
               setCurrentQuery(turn.query);
-              if (turn.response) {
-                setResponse(turn.response);
+              const maybeResponse = (turn as any).response;
+              if (maybeResponse) {
+                setResponse(maybeResponse);
               }
             }}
           />
@@ -219,6 +220,7 @@ const PlaygroundContent: React.FC = () => {
           {state.currentResponse && (
             <SQLViewer
               sql={state.currentResponse.sql}
+              params={state.currentResponse.params}
               confidence={state.currentResponse.confidence}
               executionTime={state.currentResponse.execution_time}
               onExecute={handleExecuteSQL}

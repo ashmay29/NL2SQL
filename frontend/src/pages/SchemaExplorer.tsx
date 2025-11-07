@@ -16,7 +16,7 @@ export const SchemaExplorer = () => {
   });
 
   const handleRefresh = () => {
-    refreshMutation.mutate('nl2sql_target');
+    refreshMutation.mutate('uploaded_data');
   };
 
   if (isLoading) {

@@ -26,7 +26,7 @@ export const useHealth = (options?: UseQueryOptions<HealthResponse>) => {
 };
 
 // Schema
-export const useSchema = (database: string = 'nl2sql_target', options?: UseQueryOptions<SchemaInfo>) => {
+export const useSchema = (database: string = 'uploaded_data', options?: UseQueryOptions<SchemaInfo>) => {
   return useQuery<SchemaInfo>({
     queryKey: ['schema', database],
     queryFn: async () => {
@@ -85,6 +85,50 @@ export const useUploadEmbeddings = (options?: UseMutationOptions<EmbeddingUpload
   return useMutation({
     mutationFn: async (payload: EmbeddingUploadPayload) => {
       const { data } = await apiClient.post<EmbeddingUploadResponse>('/api/v1/schema/embeddings/upload', payload);
+      return data;
+    },
+    ...options,
+  });
+};
+
+// CSV Upload
+export const useUploadCSV = (options?: UseMutationOptions<any, Error, { file: File; tableName: string }>) => {
+  return useMutation({
+    mutationFn: async ({ file, tableName }: { file: File; tableName: string }) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('table_name', tableName);
+      formData.append('delimiter', ',');
+      formData.append('encoding', 'utf-8');
+      formData.append('generate_embeddings', 'true');
+      
+      const { data } = await apiClient.post('/api/v1/data/upload/csv', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return data;
+    },
+    ...options,
+  });
+};
+
+// NL2SQL Query hook (for enhanced playground)
+export const useNL2SQLQuery = (options?: UseMutationOptions<NL2SQLResponse, Error, NL2SQLRequest>) => {
+  return useMutation({
+    mutationFn: async (request: NL2SQLRequest) => {
+      const { data } = await apiClient.post<NL2SQLResponse>('/api/v1/nl2sql', request);
+      return data;
+    },
+    ...options,
+  });
+};
+
+// Feedback submission
+export const useSubmitFeedback = (options?: UseMutationOptions<any, Error, any>) => {
+  return useMutation({
+    mutationFn: async (feedback: any) => {
+      const { data } = await apiClient.post('/api/v1/feedback', feedback);
       return data;
     },
     ...options,

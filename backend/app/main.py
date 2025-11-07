@@ -4,7 +4,7 @@ FastAPI main application
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.v1 import health, schema, embeddings, nl2sql, diagnostics, feedback, data_ingestion, gnn
+from app.api.v1 import health, schema, embeddings, nl2sql, diagnostics, feedback, data_ingestion, gnn, database_connection
 import logging
 
 # Configure logging
@@ -42,6 +42,7 @@ app.include_router(feedback.router, prefix="/api/v1", tags=["Feedback"])
 app.include_router(diagnostics.router, prefix="/api/v1", tags=["Diagnostics"])
 app.include_router(data_ingestion.router, prefix="/api/v1", tags=["Data Ingestion"])
 app.include_router(gnn.router, prefix="/api/v1", tags=["GNN"])
+app.include_router(database_connection.router, prefix="/api/v1/database", tags=["Database Connection"])
 
 @app.on_event("startup")
 async def startup_event():
@@ -53,15 +54,37 @@ async def startup_event():
     logger.info(f"Embedding Model: {settings.EMBEDDING_MODEL}")
     logger.info("=" * 60)
     
+    # Check service connections
+    from app.core.dependencies import get_redis_client, get_schema_service
+    
+    # Test Redis connection
+    try:
+        redis_client = get_redis_client()
+        redis_client.ping()
+        logger.info("✅ Connected to Redis")
+    except Exception as e:
+        logger.warning(f"⚠️ Redis unavailable - using mock client: {e}")
+    
+    # Test MySQL connection  
+    schema_service = get_schema_service()
+    if schema_service.inspector:
+        logger.info("✅ Connected to MySQL")
+    else:
+        logger.warning("⚠️ MySQL unavailable - schema extraction disabled")
+    
     # Initialize Qdrant collections
     try:
         from app.core.dependencies import get_qdrant_service, get_embedding_service
         qdrant = get_qdrant_service()
         embeddings = get_embedding_service()
         await qdrant.init_collections(vector_dim=embeddings.get_dimension())
-        logger.info("Qdrant collections initialized")
+        logger.info("✅ Qdrant collections initialized")
     except Exception as e:
-        logger.error(f"Failed to initialize Qdrant collections: {e}")
+        logger.warning(f"⚠️ Failed to initialize Qdrant collections: {e}")
+    
+    logger.info("=" * 60)
+    logger.info("🚀 NL2SQL API Ready")
+    logger.info("=" * 60)
 
 
 @app.on_event("shutdown")

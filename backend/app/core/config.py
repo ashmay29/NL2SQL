@@ -41,9 +41,16 @@ class Settings(BaseSettings):
     EMBEDDING_DIM: int = 512  # 512 for GNN, 384 for SentenceTransformer
     
     # GNN Service
-    GNN_ENDPOINT: Optional[str] = None  # External GNN model server URL
+    GNN_ENDPOINT: Optional[str] = None  # External GNN model server URL (deprecated, use local GNN)
     GNN_TIMEOUT: int = 30  # GNN request timeout in seconds
     USE_GNN_FALLBACK: bool = True  # Fall back to SentenceTransformer if GNN fails
+    
+    # Local GNN Model
+    GNN_MODEL_PATH: str = "models/gnn/best_model.pt"  # Path to trained GNN weights
+    GNN_DEVICE: str = "auto"  # 'cuda', 'cpu', or 'auto' (auto-detect)
+    GNN_NODE_FEATURE_DIM: int = 5  # Node feature dimension
+    GNN_HIDDEN_CHANNELS: int = 256  # GNN hidden layer dimension
+    USE_LOCAL_GNN: bool = True  # Use local GNN model instead of external service
     
     # Limits
     MAX_QUERY_ROWS: int = 10000

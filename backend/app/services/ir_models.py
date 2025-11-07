@@ -55,20 +55,51 @@ class WindowFunction(BaseModel):
     frame: Optional[WindowFrame] = None
 
 
+class CaseWhen(BaseModel):
+    """CASE WHEN condition for conditional expressions"""
+    condition: Optional["Predicate"] = Field(None, alias="when")  # Alias 'when' to 'condition'
+    result: Optional["Expression"] = Field(None, alias="then")  # Alias 'then' to 'result', allow None for NULL
+    
+    class Config:
+        populate_by_name = True  # Allow both 'when'/'then' and 'condition'/'result'
+
+
+class CaseExpression(BaseModel):
+    """CASE expression support"""
+    when_clauses: List[CaseWhen] = Field(..., alias="conditions")
+    else_clause: Optional["Expression"] = Field(None, alias="else")
+    
+    class Config:
+        populate_by_name = True  # Allow both 'conditions' and 'when_clauses'
+
+
 class Expression(BaseModel):
-    type: Literal["column", "literal", "function", "aggregate", "window", "subquery"]
-    value: Any
+    type: Literal["column", "literal", "function", "aggregate", "window", "subquery", "case"]
+    value: Any = None  # Make optional for case expressions
     alias: Optional[str] = None
 
     # For function/aggregate
     function: Optional[str] = None
     args: List["Expression"] = []
 
-    # For window functions
-    window: Optional[WindowFunction] = None
+    # For window functions (two formats supported for flexibility)
+    window: Optional[WindowFunction] = None  # Nested format
+    partition_by: Optional[List[str]] = None  # Direct format (alternative)
+    order_by: Optional[List[dict]] = None  # Direct format (alternative) - list of {"column": str, "direction": str}
 
     # For subquery
     subquery: Optional["QueryIR"] = None
+    
+    # For CASE expressions (two formats supported)
+    case: Optional[CaseExpression] = None  # Nested format
+    conditions: Optional[List[CaseWhen]] = None  # Direct format (alternative)
+    else_: Optional["Expression"] = Field(None, alias="else")  # Direct format (alternative)
+    
+    # Additional field for data type hints
+    data_type: Optional[str] = None
+    
+    class Config:
+        populate_by_name = True  # Allow both 'else' and 'else_'
 
 
 class Predicate(BaseModel):
@@ -99,7 +130,7 @@ class QueryIR(BaseModel):
     distinct: bool = False
 
     # FROM
-    from_table: str
+    from_table: Optional[str] = None  # Optional to support queries without FROM (e.g., SELECT 1)
     from_alias: Optional[str] = None
 
     # JOINs
@@ -136,5 +167,7 @@ class QueryIR(BaseModel):
 
 
 # Forward refs
+CaseWhen.update_forward_refs()
+CaseExpression.update_forward_refs()
 Expression.update_forward_refs()
 QueryIR.update_forward_refs()

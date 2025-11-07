@@ -84,16 +84,23 @@ async def upload_csv(
             encoding=encoding
         )
         
+        # Wrap schema in database format
+        db_schema = {
+            'database': 'uploaded_data',
+            'tables': {table_name: schema},
+            'fingerprint': schema['fingerprint'],
+            'extracted_at': schema['extracted_at']
+        }
+        
+        # Cache schema for NL2SQL pipeline to use
+        from app.core.dependencies import get_schema_service
+        schema_service = get_schema_service()
+        schema_service.cache_schema(db_schema, ttl=86400)  # 24 hours
+        logger.info(f"Cached schema for uploaded_data with table {table_name}")
+        
         # Generate embeddings if requested
         if generate_embeddings:
             try:
-                # Wrap schema in database format
-                db_schema = {
-                    'database': 'uploaded_data',
-                    'tables': {table_name: schema},
-                    'fingerprint': schema['fingerprint']
-                }
-                
                 embeddings = await embedding_service.embed_schema(db_schema)
                 logger.info(f"Generated {len(embeddings)} embeddings for {table_name}")
             except Exception as e:
@@ -156,15 +163,23 @@ async def upload_excel(
             table_name=table_name
         )
         
+        # Wrap schema in database format
+        db_schema = {
+            'database': 'uploaded_data',
+            'tables': {schema['table_name']: schema},
+            'fingerprint': schema['fingerprint'],
+            'extracted_at': schema['extracted_at']
+        }
+        
+        # Cache schema for NL2SQL pipeline
+        from app.core.dependencies import get_schema_service
+        schema_service = get_schema_service()
+        schema_service.cache_schema(db_schema, ttl=86400)
+        logger.info(f"Cached schema for uploaded_data with table {schema['table_name']}")
+        
         # Generate embeddings
         if generate_embeddings:
             try:
-                db_schema = {
-                    'database': 'uploaded_data',
-                    'tables': {schema['table_name']: schema},
-                    'fingerprint': schema['fingerprint']
-                }
-                
                 embeddings = await embedding_service.embed_schema(db_schema)
                 logger.info(f"Generated {len(embeddings)} embeddings")
             except Exception as e:
