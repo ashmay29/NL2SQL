@@ -106,7 +106,7 @@ export const SQLViewer: React.FC<SQLViewerProps> = ({
         {sql ? (
           <div className="relative">
             <Editor
-              height="400px"
+              height="500px"
               defaultLanguage="sql"
               value={sql}
               theme="vs-light"

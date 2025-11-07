@@ -86,9 +86,10 @@ class Expression(BaseModel):
     window: Optional[WindowFunction] = None  # Nested format
     partition_by: Optional[List[str]] = None  # Direct format (alternative)
     order_by: Optional[List[dict]] = None  # Direct format (alternative) - list of {"column": str, "direction": str}
+    window_frame: Optional[Dict[str, Any]] = None  # Window frame specification (ROWS/RANGE BETWEEN...)
 
-    # For subquery
-    subquery: Optional["QueryIR"] = None
+    # For subquery (support both 'subquery' and 'query' field names)
+    subquery: Optional["QueryIR"] = Field(None, alias="query")
     
     # For CASE expressions (two formats supported)
     case: Optional[CaseExpression] = None  # Nested format
@@ -99,7 +100,7 @@ class Expression(BaseModel):
     data_type: Optional[str] = None
     
     class Config:
-        populate_by_name = True  # Allow both 'else' and 'else_'
+        populate_by_name = True  # Allow both 'else' and 'else_', 'query' and 'subquery'
 
 
 class Predicate(BaseModel):
@@ -113,7 +114,7 @@ class Join(BaseModel):
     type: JoinType
     table: str
     alias: Optional[str] = None
-    on: List[Predicate]
+    on: List[Predicate] = []  # Empty list for CROSS JOIN (no ON clause needed)
 
 
 class CTE(BaseModel):

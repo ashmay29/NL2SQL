@@ -15,11 +15,13 @@ class IRToMySQLCompiler:
         params: Dict = ir.parameters.copy() if ir.parameters else {}
         sql_parts: List[str] = []
 
-        # CTEs - each CTE gets its own WITH keyword
+        # CTEs - use single WITH keyword with comma-separated CTEs (MySQL syntax)
         if ir.ctes:
-            for i, cte in enumerate(ir.ctes):
+            cte_parts = []
+            for cte in ir.ctes:
                 cte_sql, _ = self.compile(cte.query)
-                sql_parts.append(f"WITH {cte.name} AS ({cte_sql})")
+                cte_parts.append(f"{cte.name} AS ({cte_sql})")
+            sql_parts.append("WITH " + ",\n".join(cte_parts))
 
         # SELECT
         select_items = [self._compile_expression(expr, params, inline_literals=True) for expr in ir.select]
@@ -39,8 +41,12 @@ class IRToMySQLCompiler:
 
         # JOINs
         for j in ir.joins or []:
-            on_clause = self._compile_predicates(j.on, params)
-            sql_parts.append(f"{j.type.value} JOIN `{j.table}`" + (f" AS {j.alias}" if j.alias else "") + f" ON {on_clause}")
+            join_clause = f"{j.type.value} JOIN `{j.table}`" + (f" AS {j.alias}" if j.alias else "")
+            # CROSS JOIN doesn't need ON clause
+            if j.on:
+                on_clause = self._compile_predicates(j.on, params)
+                join_clause += f" ON {on_clause}"
+            sql_parts.append(join_clause)
 
         # WHERE
         if ir.where:
@@ -144,6 +150,29 @@ class IRToMySQLCompiler:
                     expr_sql = self._compile_expression(expr.args[0], params, inline_literals=True)
                     return f"CAST({expr_sql} AS DECIMAL)" + (f" AS {expr.alias}" if expr.alias else "")
             
+            # Handle DATE_SUB, DATE_ADD - special MySQL syntax: DATE_SUB(date, INTERVAL n UNIT)
+            if expr.function in ("DATE_SUB", "DATE_ADD"):
+                if expr.args and len(expr.args) >= 2:
+                    date_expr = self._compile_expression(expr.args[0], params, inline_literals=True)
+                    interval_arg = expr.args[1]
+                    
+                    # Check if interval is already formatted (e.g., "INTERVAL 30 DAY")
+                    if interval_arg.type == "literal" and isinstance(interval_arg.value, str):
+                        interval_str = interval_arg.value
+                        # Remove quotes if present and ensure proper format
+                        interval_str = interval_str.strip("'\"")
+                        
+                        # If it's already in "INTERVAL n UNIT" format, use as-is
+                        if interval_str.upper().startswith("INTERVAL"):
+                            return f"{expr.function}({date_expr}, {interval_str})" + (f" AS {expr.alias}" if expr.alias else "")
+                        else:
+                            # Otherwise, wrap it as INTERVAL
+                            return f"{expr.function}({date_expr}, INTERVAL {interval_str})" + (f" AS {expr.alias}" if expr.alias else "")
+                    else:
+                        # Compile the interval expression normally
+                        interval_sql = self._compile_expression(interval_arg, params, inline_literals=True)
+                        return f"{expr.function}({date_expr}, {interval_sql})" + (f" AS {expr.alias}" if expr.alias else "")
+            
             # Handle math operations as infix operators
             if expr.function in ("MULTIPLY", "DIVIDE", "ADD", "SUBTRACT", "MODULO"):
                 if expr.args and len(expr.args) >= 2:
@@ -193,12 +222,52 @@ class IRToMySQLCompiler:
                         order_items.append(f"{col} {direction}")
                 over_parts.append(f"ORDER BY {', '.join(order_items)}")
             
+            # Handle window frame if present (ROWS/RANGE BETWEEN...)
+            if hasattr(expr, 'window_frame') and expr.window_frame:
+                frame = expr.window_frame
+                frame_type = frame.get("type", "ROWS").upper()  # ROWS or RANGE
+                start = frame.get("start", {})
+                end = frame.get("end", {})
+                
+                # Build frame specification
+                start_type = start.get("type", "unbounded_preceding").upper()
+                start_value = start.get("value")
+                
+                if start_type == "PRECEDING" and start_value:
+                    start_clause = f"{start_value} PRECEDING"
+                elif start_type == "UNBOUNDED_PRECEDING" or start_type == "UNBOUNDED PRECEDING":
+                    start_clause = "UNBOUNDED PRECEDING"
+                elif start_type == "CURRENT_ROW" or start_type == "CURRENT ROW":
+                    start_clause = "CURRENT ROW"
+                else:
+                    start_clause = "UNBOUNDED PRECEDING"
+                
+                end_type = end.get("type", "current_row").upper()
+                end_value = end.get("value")
+                
+                if end_type == "FOLLOWING" and end_value:
+                    end_clause = f"{end_value} FOLLOWING"
+                elif end_type == "UNBOUNDED_FOLLOWING" or end_type == "UNBOUNDED FOLLOWING":
+                    end_clause = "UNBOUNDED FOLLOWING"
+                elif end_type == "CURRENT_ROW" or end_type == "CURRENT ROW":
+                    end_clause = "CURRENT ROW"
+                else:
+                    end_clause = "CURRENT ROW"
+                
+                over_parts.append(f"{frame_type} BETWEEN {start_clause} AND {end_clause}")
+            
             over_clause = " OVER (" + " ".join(over_parts) + ")" if over_parts else " OVER ()"
             return inner + over_clause + (f" AS {expr.alias}" if expr.alias else "")
         
-        if t == "subquery" and expr.subquery:
-            sub_sql, _ = self.compile(expr.subquery)
-            return f"({sub_sql})" + (f" AS {expr.alias}" if expr.alias else "")
+        if t == "subquery":
+            # Handle both 'subquery' and 'query' field names due to alias
+            subquery_ir = expr.subquery if expr.subquery else getattr(expr, 'query', None)
+            if subquery_ir:
+                sub_sql, _ = self.compile(subquery_ir)
+                return f"({sub_sql})" + (f" AS {expr.alias}" if expr.alias else "")
+            else:
+                raise ValueError("Subquery type specified but no subquery data found")
+        
         raise ValueError(f"Unsupported expression type: {t}")
 
     def _compile_predicates(self, preds: List[Predicate], params: Dict) -> str:
