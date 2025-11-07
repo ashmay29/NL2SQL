@@ -233,12 +233,7 @@ def _extract_schema_from_database(inspector, database_name: str) -> Dict[str, An
         
         # Try to get row count (may fail on some databases)
         row_count = None
-        try:
-            # This requires an active connection
-            # We'll skip it for now and let the schema service handle it
-            pass
-        except:
-            pass
+        # Row count extraction is skipped for now; let the schema service handle it
         
         schema['tables'][table_name] = {
             "columns": columns,
