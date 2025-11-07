@@ -51,7 +51,6 @@ class PipelineContext:
         self.suggested_fixes: List[str] = []
         self.confidence: float = 1.0
         self.ambiguities: List[Dict[str, Any]] = []
-        self.ambiguities: List[Dict[str, Any]] = []
 
 
 class PipelineOrchestrator:
