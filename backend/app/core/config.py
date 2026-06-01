@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     QDRANT_API_KEY: Optional[str] = None
     
     # LLM Providers
-    LLM_PROVIDER: str = "ollama"  # ollama | gemini
+    LLM_PROVIDER: str = "ollama"  # ollama | gemini | huggingface
     OLLAMA_ENDPOINT: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "mistral:latest"
     OLLAMA_NUM_CTX: int = 4096
@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     USE_GEMINI_FOR_FEEDBACK: bool = True
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
+    HF_API_KEY: Optional[str] = None
+    HF_MODEL: str = "Qwen/Qwen2.5-Coder-32B-Instruct"
     
     # Embeddings
     EMBEDDING_PROVIDER: str = "mock"  # mock | gnn | enhanced

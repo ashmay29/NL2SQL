@@ -1,0 +1,68 @@
+﻿python.exe : D:\IDE\code\projects\personal\NL2SQL\.venv\Lib\site-packages\huggingface_
+hub\file_download.py:942: FutureWarning: `resume_download` is deprecated and will be 
+removed in version 1.0.0. Downloads always resume when possible. If you want to force 
+a new download, use `force_download=True`.
+At line:1 char:104
++ ... L\backend"; & d:\IDE\code\projects\personal\NL2SQL\.venv\Scripts\pyth ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\IDE\code\pro...download=True`.:String 
+   ) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  warnings.warn(
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "d:\IDE\code\projects\personal\NL2SQL\evaluation\run_evaluation.py", line 576, 
+in <module>
+    main()
+  File "d:\IDE\code\projects\personal\NL2SQL\evaluation\run_evaluation.py", line 559, 
+in main
+    asyncio.run(run_evaluation(
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.12_3.12.2800.0_
+x64__qbz5n2kfra8p0\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.12_3.12.2800.0_
+x64__qbz5n2kfra8p0\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.12_3.12.2800.0_
+x64__qbz5n2kfra8p0\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "d:\IDE\code\projects\personal\NL2SQL\evaluation\run_evaluation.py", line 401, 
+in run_evaluation
+    print(f"   Tokens: {tr['full_tokens']} \u2192 {tr['pruned_tokens']}  "
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.12_3.12.2800.0_
+x64__qbz5n2kfra8p0\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 15: 
+character maps to <undefined>
+======================================================================
+  NL2SQL EVALUATION ù Execution Accuracy & Token Reduction
+======================================================================
+
+  Benchmark:  32 queries loaded
+  Database:   nl2sql_target
+  Schema:     16 tables, 87 columns
+  GNN model:  d:\IDE\code\projects\personal\NL2SQL\backend\models\gnn\best_model.pt
+  Top-K:      15
+  LLM calls:  SKIPPED
+======================================================================
+
+
+======================================================================
+  TOP-K SENSITIVITY ANALYSIS
+======================================================================
+  K=  5  |  Table Recall:  63.9%  |  Perfect Recall:  43.8%  |  Token Reduction:  93.0%
+  K= 10  |  Table Recall:  72.4%  |  Perfect Recall:  53.1%  |  Token Reduction:  91.0%
+  K= 15  |  Table Recall:  85.1%  |  Perfect Recall:  68.8%  |  Token Reduction:  88.3%
+  K= 20  |  Table Recall:  85.6%  |  Perfect Recall:  68.8%  |  Token Reduction:  85.7%
+  K= 30  |  Table Recall:  93.1%  |  Perfect Recall:  81.2%  |  Token Reduction:  80.6%
+  K= 50  |  Table Recall: 100.0%  |  Perfect Recall: 100.0%  |  Token Reduction:  70.6%
+======================================================================
+
+[1/32] q01 (easy) ù Show me all actors

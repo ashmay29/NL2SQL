@@ -1,0 +1,258 @@
+[
+    {
+        "id": "q01",
+        "difficulty": "easy",
+        "nl_query": "Show me all actors",
+        "gold_sql": "SELECT * FROM actor",
+        "tables_needed": ["actor"],
+        "category": "basic_select"
+    },
+    {
+        "id": "q02",
+        "difficulty": "easy",
+        "nl_query": "List all film titles and their rental rates",
+        "gold_sql": "SELECT title, rental_rate FROM film",
+        "tables_needed": ["film"],
+        "category": "basic_select"
+    },
+    {
+        "id": "q03",
+        "difficulty": "easy",
+        "nl_query": "Show me all films rated PG-13",
+        "gold_sql": "SELECT * FROM film WHERE rating = 'PG-13'",
+        "tables_needed": ["film"],
+        "category": "filter"
+    },
+    {
+        "id": "q04",
+        "difficulty": "easy",
+        "nl_query": "What are all the category names?",
+        "gold_sql": "SELECT name FROM category",
+        "tables_needed": ["category"],
+        "category": "basic_select"
+    },
+    {
+        "id": "q05",
+        "difficulty": "easy",
+        "nl_query": "How many customers are there?",
+        "gold_sql": "SELECT COUNT(*) FROM customer",
+        "tables_needed": ["customer"],
+        "category": "aggregation"
+    },
+    {
+        "id": "q06",
+        "difficulty": "easy",
+        "nl_query": "Show all active staff members",
+        "gold_sql": "SELECT * FROM staff WHERE active = TRUE",
+        "tables_needed": ["staff"],
+        "category": "filter"
+    },
+    {
+        "id": "q07",
+        "difficulty": "easy",
+        "nl_query": "What is the longest film?",
+        "gold_sql": "SELECT title, length FROM film ORDER BY length DESC LIMIT 1",
+        "tables_needed": ["film"],
+        "category": "ordering"
+    },
+    {
+        "id": "q08",
+        "difficulty": "easy",
+        "nl_query": "List all countries sorted alphabetically",
+        "gold_sql": "SELECT country FROM country ORDER BY country",
+        "tables_needed": ["country"],
+        "category": "ordering"
+    },
+    {
+        "id": "q09",
+        "difficulty": "easy",
+        "nl_query": "What languages are available?",
+        "gold_sql": "SELECT name FROM language",
+        "tables_needed": ["language"],
+        "category": "basic_select"
+    },
+    {
+        "id": "q10",
+        "difficulty": "easy",
+        "nl_query": "How many films have an R rating?",
+        "gold_sql": "SELECT COUNT(*) FROM film WHERE rating = 'R'",
+        "tables_needed": ["film"],
+        "category": "aggregation"
+    },
+    {
+        "id": "q11",
+        "difficulty": "medium",
+        "nl_query": "List all films with their language names",
+        "gold_sql": "SELECT f.title, l.name AS language FROM film f JOIN language l ON f.language_id = l.language_id",
+        "tables_needed": ["film", "language"],
+        "category": "join"
+    },
+    {
+        "id": "q12",
+        "difficulty": "medium",
+        "nl_query": "Show all customers and the city they live in",
+        "gold_sql": "SELECT c.first_name, c.last_name, ci.city FROM customer c JOIN address a ON c.address_id = a.address_id JOIN city ci ON a.city_id = ci.city_id",
+        "tables_needed": ["customer", "address", "city"],
+        "category": "multi_join"
+    },
+    {
+        "id": "q13",
+        "difficulty": "medium",
+        "nl_query": "How many films are in each category?",
+        "gold_sql": "SELECT c.name, COUNT(*) AS film_count FROM category c JOIN film_category fc ON c.category_id = fc.category_id GROUP BY c.name",
+        "tables_needed": ["category", "film_category"],
+        "category": "join_aggregation"
+    },
+    {
+        "id": "q14",
+        "difficulty": "medium",
+        "nl_query": "What is the average rental rate per film rating?",
+        "gold_sql": "SELECT rating, AVG(rental_rate) AS avg_rate FROM film GROUP BY rating",
+        "tables_needed": ["film"],
+        "category": "aggregation"
+    },
+    {
+        "id": "q15",
+        "difficulty": "medium",
+        "nl_query": "List all films that actor Penelope Guiness appears in",
+        "gold_sql": "SELECT f.title FROM film f JOIN film_actor fa ON f.film_id = fa.film_id JOIN actor a ON fa.actor_id = a.actor_id WHERE a.first_name = 'Penelope' AND a.last_name = 'Guiness'",
+        "tables_needed": ["film", "film_actor", "actor"],
+        "category": "multi_join"
+    },
+    {
+        "id": "q16",
+        "difficulty": "medium",
+        "nl_query": "Show the number of customers per store",
+        "gold_sql": "SELECT store_id, COUNT(*) AS customer_count FROM customer GROUP BY store_id",
+        "tables_needed": ["customer"],
+        "category": "aggregation"
+    },
+    {
+        "id": "q17",
+        "difficulty": "medium",
+        "nl_query": "Which staff member processed the most rentals?",
+        "gold_sql": "SELECT s.first_name, s.last_name, COUNT(r.rental_id) AS rental_count FROM staff s JOIN rental r ON s.staff_id = r.staff_id GROUP BY s.staff_id, s.first_name, s.last_name ORDER BY rental_count DESC LIMIT 1",
+        "tables_needed": ["staff", "rental"],
+        "category": "join_aggregation"
+    },
+    {
+        "id": "q18",
+        "difficulty": "medium",
+        "nl_query": "List all rentals that have not been returned yet",
+        "gold_sql": "SELECT r.rental_id, c.first_name, c.last_name, r.rental_date FROM rental r JOIN customer c ON r.customer_id = c.customer_id WHERE r.return_date IS NULL",
+        "tables_needed": ["rental", "customer"],
+        "category": "join_filter"
+    },
+    {
+        "id": "q19",
+        "difficulty": "medium",
+        "nl_query": "What is the total payment amount by each customer?",
+        "gold_sql": "SELECT c.first_name, c.last_name, SUM(p.amount) AS total_paid FROM customer c JOIN payment p ON c.customer_id = p.customer_id GROUP BY c.customer_id, c.first_name, c.last_name",
+        "tables_needed": ["customer", "payment"],
+        "category": "join_aggregation"
+    },
+    {
+        "id": "q20",
+        "difficulty": "hard",
+        "nl_query": "Find the top 5 most rented films",
+        "gold_sql": "SELECT f.title, COUNT(r.rental_id) AS rental_count FROM film f JOIN inventory i ON f.film_id = i.film_id JOIN rental r ON i.inventory_id = r.inventory_id GROUP BY f.film_id, f.title ORDER BY rental_count DESC LIMIT 5",
+        "tables_needed": ["film", "inventory", "rental"],
+        "category": "multi_join_aggregation"
+    },
+    {
+        "id": "q21",
+        "difficulty": "hard",
+        "nl_query": "Show the total revenue per film category",
+        "gold_sql": "SELECT cat.name, SUM(p.amount) AS total_revenue FROM category cat JOIN film_category fc ON cat.category_id = fc.category_id JOIN film f ON fc.film_id = f.film_id JOIN inventory i ON f.film_id = i.film_id JOIN rental r ON i.inventory_id = r.inventory_id JOIN payment p ON r.rental_id = p.rental_id GROUP BY cat.name ORDER BY total_revenue DESC",
+        "tables_needed": ["category", "film_category", "film", "inventory", "rental", "payment"],
+        "category": "multi_join_aggregation"
+    },
+    {
+        "id": "q22",
+        "difficulty": "hard",
+        "nl_query": "Which country has the most customers?",
+        "gold_sql": "SELECT co.country, COUNT(c.customer_id) AS customer_count FROM country co JOIN city ci ON co.country_id = ci.country_id JOIN address a ON ci.city_id = a.city_id JOIN customer c ON a.address_id = c.address_id GROUP BY co.country ORDER BY customer_count DESC LIMIT 1",
+        "tables_needed": ["country", "city", "address", "customer"],
+        "category": "multi_join_aggregation"
+    },
+    {
+        "id": "q23",
+        "difficulty": "hard",
+        "nl_query": "Find actors who appeared in more than 3 films",
+        "gold_sql": "SELECT a.first_name, a.last_name, COUNT(fa.film_id) AS film_count FROM actor a JOIN film_actor fa ON a.actor_id = fa.actor_id GROUP BY a.actor_id, a.first_name, a.last_name HAVING COUNT(fa.film_id) > 3",
+        "tables_needed": ["actor", "film_actor"],
+        "category": "join_aggregation_having"
+    },
+    {
+        "id": "q24",
+        "difficulty": "hard",
+        "nl_query": "List the top 3 customers who spent the most money, along with their city and country",
+        "gold_sql": "SELECT c.first_name, c.last_name, ci.city, co.country, SUM(p.amount) AS total_spent FROM customer c JOIN address a ON c.address_id = a.address_id JOIN city ci ON a.city_id = ci.city_id JOIN country co ON ci.country_id = co.country_id JOIN payment p ON c.customer_id = p.customer_id GROUP BY c.customer_id, c.first_name, c.last_name, ci.city, co.country ORDER BY total_spent DESC LIMIT 3",
+        "tables_needed": ["customer", "address", "city", "country", "payment"],
+        "category": "multi_join_aggregation"
+    },
+    {
+        "id": "q25",
+        "difficulty": "hard",
+        "nl_query": "Show the average film length per category, only for categories with more than 3 films",
+        "gold_sql": "SELECT cat.name, AVG(f.length) AS avg_length, COUNT(*) AS film_count FROM category cat JOIN film_category fc ON cat.category_id = fc.category_id JOIN film f ON fc.film_id = f.film_id GROUP BY cat.name HAVING COUNT(*) > 3",
+        "tables_needed": ["category", "film_category", "film"],
+        "category": "join_aggregation_having"
+    },
+    {
+        "id": "q26",
+        "difficulty": "hard",
+        "nl_query": "Find films that were rented but never returned",
+        "gold_sql": "SELECT DISTINCT f.title FROM film f JOIN inventory i ON f.film_id = i.film_id JOIN rental r ON i.inventory_id = r.inventory_id WHERE r.return_date IS NULL",
+        "tables_needed": ["film", "inventory", "rental"],
+        "category": "multi_join"
+    },
+    {
+        "id": "q27",
+        "difficulty": "hard",
+        "nl_query": "What is the monthly revenue trend for 2023?",
+        "gold_sql": "SELECT YEAR(p.payment_date) AS yr, MONTH(p.payment_date) AS mo, SUM(p.amount) AS monthly_revenue FROM payment p WHERE YEAR(p.payment_date) = 2023 GROUP BY yr, mo ORDER BY yr, mo",
+        "tables_needed": ["payment"],
+        "category": "aggregation"
+    },
+    {
+        "id": "q28",
+        "difficulty": "extra_hard",
+        "nl_query": "For each store, show the most popular film category by number of rentals",
+        "gold_sql": "SELECT ranked.store_id, ranked.category_name, ranked.rental_count FROM (SELECT s.store_id, cat.name AS category_name, COUNT(r.rental_id) AS rental_count, ROW_NUMBER() OVER (PARTITION BY s.store_id ORDER BY COUNT(r.rental_id) DESC) AS rn FROM store s JOIN inventory i ON s.store_id = i.store_id JOIN rental r ON i.inventory_id = r.inventory_id JOIN film f ON i.film_id = f.film_id JOIN film_category fc ON f.film_id = fc.film_id JOIN category cat ON fc.category_id = cat.category_id GROUP BY s.store_id, cat.name) ranked WHERE ranked.rn = 1",
+        "tables_needed": ["store", "inventory", "rental", "film", "film_category", "category"],
+        "category": "window_function"
+    },
+    {
+        "id": "q29",
+        "difficulty": "extra_hard",
+        "nl_query": "Find customers who have rented films from every category",
+        "gold_sql": "SELECT c.first_name, c.last_name FROM customer c WHERE (SELECT COUNT(DISTINCT fc.category_id) FROM rental r JOIN inventory i ON r.inventory_id = i.inventory_id JOIN film_category fc ON i.film_id = fc.film_id WHERE r.customer_id = c.customer_id) = (SELECT COUNT(*) FROM category)",
+        "tables_needed": ["customer", "rental", "inventory", "film_category", "category"],
+        "category": "subquery_aggregation"
+    },
+    {
+        "id": "q30",
+        "difficulty": "extra_hard",
+        "nl_query": "Rank actors by the total revenue their films have generated",
+        "gold_sql": "SELECT a.first_name, a.last_name, SUM(p.amount) AS total_revenue, RANK() OVER (ORDER BY SUM(p.amount) DESC) AS revenue_rank FROM actor a JOIN film_actor fa ON a.actor_id = fa.actor_id JOIN film f ON fa.film_id = f.film_id JOIN inventory i ON f.film_id = i.film_id JOIN rental r ON i.inventory_id = r.inventory_id JOIN payment p ON r.rental_id = p.rental_id GROUP BY a.actor_id, a.first_name, a.last_name ORDER BY total_revenue DESC",
+        "tables_needed": ["actor", "film_actor", "film", "inventory", "rental", "payment"],
+        "category": "window_function"
+    },
+    {
+        "id": "q31",
+        "difficulty": "extra_hard",
+        "nl_query": "Find the average time between rental and return for each film rating, and compare it to the overall average",
+        "gold_sql": "SELECT f.rating, AVG(DATEDIFF(r.return_date, r.rental_date)) AS avg_days, AVG(DATEDIFF(r.return_date, r.rental_date)) - (SELECT AVG(DATEDIFF(r2.return_date, r2.rental_date)) FROM rental r2 WHERE r2.return_date IS NOT NULL) AS diff_from_overall FROM film f JOIN inventory i ON f.film_id = i.film_id JOIN rental r ON i.inventory_id = r.inventory_id WHERE r.return_date IS NOT NULL GROUP BY f.rating",
+        "tables_needed": ["film", "inventory", "rental"],
+        "category": "subquery_aggregation"
+    },
+    {
+        "id": "q32",
+        "difficulty": "extra_hard",
+        "nl_query": "Show the cumulative revenue per store over time, by month",
+        "gold_sql": "SELECT store_month.store_id, store_month.yr, store_month.mo, store_month.monthly_amount, SUM(store_month.monthly_amount) OVER (PARTITION BY store_month.store_id ORDER BY store_month.yr, store_month.mo) AS cumulative_revenue FROM (SELECT s.store_id, YEAR(p.payment_date) AS yr, MONTH(p.payment_date) AS mo, SUM(p.amount) AS monthly_amount FROM store s JOIN staff st ON s.store_id = st.store_id JOIN payment p ON st.staff_id = p.staff_id GROUP BY s.store_id, yr, mo) store_month ORDER BY store_month.store_id, store_month.yr, store_month.mo",
+        "tables_needed": ["store", "staff", "payment"],
+        "category": "window_function"
+    }
+]

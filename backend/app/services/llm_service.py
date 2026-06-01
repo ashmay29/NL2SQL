@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMService:
-    """Unified LLM service for Ollama and Gemini"""
+    """Unified LLM service for Ollama, Gemini, and HuggingFace"""
     
     def __init__(
         self,
@@ -20,13 +20,17 @@ class LLMService:
         ollama_endpoint: str = "http://localhost:11434",
         ollama_model: str = "mistral:latest",
         gemini_api_key: Optional[str] = None,
-        gemini_model: str = "gemini-2.5-flash"
+        gemini_model: str = "gemini-2.5-flash",
+        hf_api_key: Optional[str] = None,
+        hf_model: str = "Qwen/Qwen2.5-Coder-32B-Instruct"
     ):
         self.provider = provider
         self.ollama_endpoint = ollama_endpoint
         self.ollama_model = ollama_model
         self.gemini_api_key = gemini_api_key
         self.gemini_model = gemini_model
+        self.hf_api_key = hf_api_key
+        self.hf_model = hf_model
         
         logger.info(f"LLMService initialized with provider={provider}")
     
@@ -44,6 +48,8 @@ class LLMService:
             return self._generate_ollama(prompt, temperature, max_tokens)
         elif provider == "gemini":
             return self._generate_gemini(prompt, temperature, max_tokens)
+        elif provider == "huggingface":
+            return self._generate_huggingface(prompt, temperature, max_tokens)
         else:
             raise ValueError(f"Unknown provider: {provider}")
     
@@ -182,6 +188,36 @@ class LLMService:
             logger.error(f"Gemini generation failed: {e}")
             raise
     
+    def _generate_huggingface(
+        self,
+        prompt: str,
+        temperature: float,
+        max_tokens: int
+    ) -> str:
+        """Generate using HuggingFace Inference API"""
+        if not self.hf_api_key:
+            raise ValueError("HuggingFace API key not configured. Set HF_API_KEY in .env")
+        
+        try:
+            from huggingface_hub import InferenceClient
+            
+            client = InferenceClient(
+                model=self.hf_model,
+                token=self.hf_api_key
+            )
+            
+            response = client.chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=max(temperature, 0.01),
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error(f"HuggingFace generation failed: {e} | Model={self.hf_model}")
+            raise
+
     def generate_json(
         self,
         prompt: str,

@@ -130,7 +130,9 @@ def get_llm_service() -> LLMService:
         ollama_endpoint=settings.OLLAMA_ENDPOINT,
         ollama_model=settings.OLLAMA_MODEL,
         gemini_api_key=settings.GEMINI_API_KEY,
-        gemini_model=settings.GEMINI_MODEL
+        gemini_model=settings.GEMINI_MODEL,
+        hf_api_key=settings.HF_API_KEY,
+        hf_model=settings.HF_MODEL
     )
 
 
